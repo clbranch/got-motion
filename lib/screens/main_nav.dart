@@ -19,20 +19,21 @@ class _MainNavState extends State<MainNav> {
 
   int _currentIndex = 0;
 
-  static const List<Widget> _screens = [
-    HomeScreen(),
-    LeaderboardScreen(),
-    ProfileScreen(),
-    GroupScreen(),
-    SettingsScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final screens = [
+      HomeScreen(
+        onSeeAllLeaderboard: () => setState(() => _currentIndex = 1),
+      ),
+      const LeaderboardScreen(),
+      const ProfileScreen(),
+      const GroupScreen(),
+      const SettingsScreen(),
+    ];
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: screens,
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(color: _background),

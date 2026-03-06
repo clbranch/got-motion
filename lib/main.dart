@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/main_nav.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'screens/auth_gate.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(
+    url: 'https://nrhtkdeyznflvcevagjc.supabase.co',
+    anonKey: 'sb_publishable_hT9YqLCUeYmMHZ-fuoE0-Q_ZZ_3st-X',
+  );
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Color(0xFF0B0B0F),
@@ -38,7 +43,7 @@ class GotMotionApp extends StatelessWidget {
           scrolledUnderElevation: 0,
         ),
       ),
-      home: const MainNav(),
+      home: const AuthGate(),
     );
   }
 }

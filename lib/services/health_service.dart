@@ -13,6 +13,7 @@ class HealthService {
     HealthDataType.DISTANCE_WALKING_RUNNING,
     HealthDataType.ACTIVE_ENERGY_BURNED,
     HealthDataType.EXERCISE_TIME,
+    HealthDataType.APPLE_STAND_HOUR,
   ];
 
   static bool _configured = false;
@@ -232,6 +233,63 @@ class HealthService {
       return await _health.getTotalStepsInInterval(startOfWeek, now) ?? 0;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// Returns step counts for the current week, one per day [Mon..Sun]. Today may be partial.
+  static Future<List<int>> getWeekStepsByDay() async {
+    try {
+      if (!await _ensureConfiguredAndAuthorized()) {
+        return List.filled(7, 0);
+      }
+      final now = DateTime.now();
+      final startOfDay = _startOfLocalDay();
+      final startOfWeek = startOfDay.subtract(Duration(days: now.weekday - 1));
+      final out = <int>[];
+      for (var d = 0; d < 7; d++) {
+        final dayStart = startOfWeek.add(Duration(days: d));
+        final dayEnd = d == now.weekday - 1
+            ? now
+            : dayStart.add(const Duration(days: 1));
+        if (dayEnd.isBefore(dayStart)) {
+          out.add(0);
+          continue;
+        }
+        final steps = await _health.getTotalStepsInInterval(dayStart, dayEnd) ?? 0;
+        out.add(steps);
+      }
+      return out;
+    } catch (_) {
+      return List.filled(7, 0);
+    }
+  }
+
+  /// Returns today's stand hours (count of hours with at least one stand) if available from HealthKit.
+  /// Returns null if not available, not authorized, or on platforms that don't support it.
+  static Future<double?> getTodayStandHours() async {
+    try {
+      if (!await _ensureConfiguredAndAuthorized()) return null;
+      final now = DateTime.now();
+      final startOfDay = _startOfLocalDay();
+      final points = await _health.getHealthDataFromTypes(
+        types: [HealthDataType.APPLE_STAND_HOUR],
+        startTime: startOfDay,
+        endTime: now,
+      );
+      if (points.isEmpty) return null;
+      double total = 0;
+      for (final p in points) {
+        final raw = p.value;
+        if (raw is NumericHealthValue) {
+          total += raw.numericValue.toDouble();
+        } else {
+          final parsed = double.tryParse(raw.toString());
+          if (parsed != null) total += parsed;
+        }
+      }
+      return total;
+    } catch (_) {
+      return null;
     }
   }
 }
