@@ -29,6 +29,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   int? _userStepsToday;
   int? _userStepsWeek;
   int? _userStepsMonth;
+  /// Full today metrics (miles, cal, min) for "You" row when range is Today.
+  double? _userTodayMiles;
+  int? _userTodayCalories;
+  int? _userTodayExerciseMinutes;
 
   void _loadLeaderboard() {
     var list = MockMotionService.getLeaderboardForRange(_selectedRange);
@@ -40,9 +44,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     final me = MotionStats(
       name: 'You',
       steps: userSteps,
-      miles: 0,
-      activeCalories: 0,
-      exerciseMinutes: 0,
+      miles: _selectedRange == 'Today' ? (_userTodayMiles ?? 0) : 0,
+      activeCalories: _selectedRange == 'Today' ? (_userTodayCalories ?? 0) : 0,
+      exerciseMinutes: _selectedRange == 'Today' ? (_userTodayExerciseMinutes ?? 0) : 0,
       previousRank: null,
     );
     list = [me, ...list];
@@ -52,11 +56,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   Future<void> _fetchHealthSteps() async {
     final data = await HealthService.requestAndFetchSteps();
+    final today = await HealthService.getTodayMetrics();
     if (!mounted) return;
     setState(() {
       _userStepsToday = data.todaySteps;
       _userStepsWeek = data.weekSteps;
       _userStepsMonth = data.monthSteps;
+      _userTodayMiles = today.distanceMiles;
+      _userTodayCalories = today.activeEnergyCalories.round();
+      _userTodayExerciseMinutes = today.exerciseMinutes.round();
       _loadLeaderboard();
     });
   }
@@ -148,11 +156,14 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             ),
           ),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(_pagePadding, 0, _pagePadding, _pagePadding),
-              itemCount: _leaderboard.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
+            child: RefreshIndicator(
+              onRefresh: _fetchHealthSteps,
+              color: _accent,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(_pagePadding, 0, _pagePadding, _pagePadding),
+                itemCount: _leaderboard.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
                 final stats = _leaderboard[index];
                 final rank = index + 1;
                 return InkWell(
@@ -171,6 +182,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   child: LeaderboardCard(rank: rank, stats: stats),
                 );
               },
+            ),
             ),
           ),
         ],

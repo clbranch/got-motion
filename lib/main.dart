@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/leaderboard_screen.dart';
+import 'screens/main_nav.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +38,7 @@ class GotMotionApp extends StatelessWidget {
           scrolledUnderElevation: 0,
         ),
       ),
-      home: const LeaderboardScreen(),
+      home: const MainNav(),
     );
   }
 }
