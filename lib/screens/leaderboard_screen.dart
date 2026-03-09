@@ -42,15 +42,22 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   String? _error;
   String _selectedRange = 'Today';
 
+  /// Guards to prevent overlapping requests and recursive reload loops.
+  bool _isLoadingLeaderboard = false;
+  bool _isSyncingToday = false;
+
   /// After loading today's health, upsert to Supabase so group leaderboard has shared data (background).
-  /// On success, re-fetches leaderboard from Supabase so shared rankings are fresh.
+  /// On success, re-fetches leaderboard once (skipSyncAfterReload=true) so we don't create a reload loop.
   void _syncTodayToSupabase(String userId, TodayMetrics today) {
+    if (_isSyncingToday) return;
+    _isSyncingToday = true;
     if (kDebugMode) {
       // ignore: avoid_print
       print('[DailySteps] Triggering sync from Leaderboard');
     }
     Future(() async {
       try {
+        if (!mounted) return;
         await _dailyStepsService.upsertDailySteps(
           userId: userId,
           date: DateTime.now(),
@@ -59,8 +66,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           activeCalories: today.activeEnergyCalories.round(),
           exerciseMinutes: today.exerciseMinutes.round(),
         );
-        // Re-fetch leaderboard so both users' shared data is shown (no stale cache).
-        if (mounted) await _loadFromSupabase();
+        // Re-fetch leaderboard once after sync so shared rankings are fresh. Must use skipSync=true to prevent loop.
+        if (mounted) await _loadFromSupabase(skipSyncAfterReload: true);
       } catch (e, stack) {
         if (kDebugMode) {
           // ignore: avoid_print
@@ -68,6 +75,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           // ignore: avoid_print
           print('[DailySteps] Leaderboard sync failed — stack: $stack');
         }
+      } finally {
+        _isSyncingToday = false;
       }
     });
   }
@@ -85,7 +94,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       return;
     }
     try {
-      final rows = await _groupService.fetchUserGroups(user.id);
+      final rows = await _groupService.fetchUserGroups(user.id).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('Request timed out'),
+      );
       if (!mounted) return;
       final names = rows
           .map((r) => (r['groups'] as Map<String, dynamic>?)?['name']?.toString())
@@ -110,27 +122,43 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       setState(() {
         _groups = [];
         _selectedGroupName = null;
-        _error = e.toString();
+        _error = _friendlyNetworkError(e);
         _loading = false;
       });
     }
   }
 
+  String _friendlyNetworkError(Object e) {
+    final s = e.toString();
+    if (s.contains('Bad file descriptor') || s.contains('ClientException')) {
+      return 'Unable to load. Please pull to try again.';
+    }
+    if (s.contains('timed out')) return 'Request timed out. Pull to try again.';
+    return s.length > 80 ? 'Network error. Pull to try again.' : s;
+  }
+
   /// Load leaderboard from Supabase for [_selectedGroupName]. Maps view: display_name->name, total_steps->steps, total_miles->miles, total_active_calories->activeCalories, total_exercise_minutes->exerciseMinutes.
-  Future<void> _loadFromSupabase() async {
+  /// [skipSyncAfterReload] when true (e.g. called from sync success) skips triggering sync to prevent recursive loop.
+  Future<void> _loadFromSupabase({bool skipSyncAfterReload = false}) async {
+    if (_isLoadingLeaderboard) return;
     final groupId = selectedGroupService.selectedGroupId;
     if (groupId == null || groupId.isEmpty) {
-      setState(() {
-        _leaderboard = [];
-        _loading = false;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _leaderboard = [];
+          _loading = false;
+          _error = null;
+        });
+      }
       return;
     }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    _isLoadingLeaderboard = true;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       if (kDebugMode) {
         // ignore: avoid_print
@@ -139,6 +167,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       final rows = await _leaderboardService.fetchGroupLeaderboard(
         groupId,
         range: _selectedRange,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('Request timed out'),
       );
       if (!mounted) return;
 
@@ -222,9 +253,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         list.sort((a, b) => b.steps.compareTo(a.steps));
 
         // Sync current user's today stats to Supabase so group leaderboard has shared data.
-        _syncTodayToSupabase(currentUserId, today);
+        // Skip if this load was triggered by sync success (prevents recursive loop).
+        if (!skipSyncAfterReload) {
+          _syncTodayToSupabase(currentUserId, today);
+        }
       }
 
+      if (!mounted) return;
       setState(() {
         _leaderboard = list;
         _loading = false;
@@ -233,10 +268,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = _friendlyNetworkError(e);
         _leaderboard = [];
         _loading = false;
       });
+    } finally {
+      _isLoadingLeaderboard = false;
     }
   }
 
