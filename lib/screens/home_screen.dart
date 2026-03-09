@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/motion_stats.dart';
@@ -43,6 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// After health data loads, upsert today's stats to Supabase for the current user (background, no UI change).
   Future<void> _syncTodayToSupabase(TodayMetrics today) async {
+    // ignore: avoid_print
+    if (kDebugMode) print('[DailySteps] Triggering sync from Home');
     final user = Supabase.instance.client.auth.currentUser;
     // ignore: avoid_print
     if (user == null) {
@@ -68,9 +71,65 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       // ignore: avoid_print
       print('[DailySteps] upsert success');
-    } catch (e) {
+      // Re-fetch leaderboard from Supabase so shared rankings are fresh (no stale cache).
+      if (mounted) _refreshLeaderboardFromSupabase();
+    } catch (e, stack) {
       // ignore: avoid_print
-      print('[DailySteps] upsert failure: $e');
+      print('[DailySteps] upsert failure — exception: $e');
+      // ignore: avoid_print
+      if (kDebugMode) print('[DailySteps] upsert failure — stack: $stack');
+    }
+  }
+
+  /// Refreshes only the mini leaderboard from Supabase (e.g. after daily_steps sync).
+  /// Uses current _today for "You" so shared rankings from Supabase are shown for others.
+  Future<void> _refreshLeaderboardFromSupabase() async {
+    final selectedGroupId = selectedGroupService.selectedGroupId;
+    if (selectedGroupId == null || selectedGroupId.isEmpty || !mounted) return;
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    final currentUserId = currentUser?.id;
+    final currentUserEmail = currentUser?.email?.toLowerCase();
+    try {
+      final rows = await _leaderboardService.fetchGroupLeaderboard(selectedGroupId);
+      if (!mounted) return;
+      final filteredRows = rows.where((row) {
+        final rowUserId = row['user_id']?.toString();
+        final rowEmail = row['email']?.toString().toLowerCase();
+        final rowDisplayName = row['display_name']?.toString().toLowerCase();
+        if (currentUserId != null && rowUserId == currentUserId) return false;
+        if (currentUserEmail != null && rowEmail == currentUserEmail) return false;
+        if (currentUserEmail != null && rowDisplayName == currentUserEmail) return false;
+        return true;
+      }).toList();
+      var list = filteredRows
+          .map((row) => MotionStats(
+                name: LeaderboardService.resolveDisplayName(row),
+                steps: (row['total_steps'] as num?)?.toInt() ?? 0,
+                miles: (row['total_miles'] as num?)?.toDouble() ?? 0.0,
+                activeCalories: (row['total_active_calories'] as num?)?.toInt() ?? 0,
+                exerciseMinutes: (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
+                previousRank: null,
+              ))
+          .toList();
+      final me = MotionStats(
+        name: 'You',
+        steps: _today.steps,
+        miles: _today.distanceMiles,
+        activeCalories: _today.activeEnergyCalories.round(),
+        exerciseMinutes: _today.exerciseMinutes.round(),
+        previousRank: null,
+      );
+      list = [me, ...list];
+      list.sort((a, b) => b.steps.compareTo(a.steps));
+      final top = list.take(5).toList();
+      final newRank = list.indexWhere((e) => e.name == 'You') + 1;
+      if (!mounted) return;
+      setState(() {
+        _miniLeaderboard = top;
+        _myCurrentRank = newRank;
+      });
+    } catch (_) {
+      // Keep existing leaderboard on refetch failure
     }
   }
 
@@ -88,7 +147,20 @@ class _HomeScreenState extends State<HomeScreen> {
         final currentUser = Supabase.instance.client.auth.currentUser;
         final currentUserId = currentUser?.id;
         final currentUserEmail = currentUser?.email?.toLowerCase();
+        final groupName = selectedGroupService.selectedGroupName;
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[Leaderboard] Home — selected group_id: $selectedGroupId, group_name: $groupName');
+        }
         final rows = await _leaderboardService.fetchGroupLeaderboard(selectedGroupId);
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[Leaderboard] Home — rows from Supabase: ${rows.length}');
+          for (final r in rows) {
+            // ignore: avoid_print
+            print('[Leaderboard]   Supabase row: user_id=${r['user_id']}, total_steps=${r['total_steps']}');
+          }
+        }
         final filteredRows = rows.where((row) {
           final rowUserId = row['user_id']?.toString();
           final rowEmail = row['email']?.toString().toLowerCase();
@@ -117,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> {
           exerciseMinutes: today.exerciseMinutes.round(),
           previousRank: null,
         );
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[Leaderboard] Home — INJECTING local Health row for current user (You): steps=${today.steps}, miles=${today.distanceMiles}. Other users shown from Supabase only.');
+        }
         list = [me, ...list];
         list.sort((a, b) => b.steps.compareTo(a.steps));
         top = list.take(5).toList();

@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/today_metrics.dart';
+import '../services/daily_steps_service.dart';
 import '../services/health_service.dart';
 import '../services/profile_service.dart';
 
@@ -23,6 +25,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const double _pagePadding = 16.0;
 
   final ProfileService _profileService = ProfileService();
+  final DailyStepsService _dailyStepsService = DailyStepsService();
 
   TodayMetrics? _today;
   ProfileData? _profile;
@@ -51,10 +54,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _profileService.getCurrentProfile(),
     ]);
     if (!mounted) return;
+    final today = results[0] as TodayMetrics;
     setState(() {
-      _today = results[0] as TodayMetrics;
+      _today = today;
       _profile = results[1] as ProfileData?;
       _loading = false;
+    });
+    // Sync today's stats to Supabase so group leaderboard has shared data (background).
+    _syncTodayToSupabase(user.id, today);
+  }
+
+  void _syncTodayToSupabase(String userId, TodayMetrics today) {
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[DailySteps] Triggering sync from Profile');
+    }
+    Future(() async {
+      try {
+        await _dailyStepsService.upsertDailySteps(
+          userId: userId,
+          date: DateTime.now(),
+          steps: today.steps,
+          miles: today.distanceMiles,
+          activeCalories: today.activeEnergyCalories.round(),
+          exerciseMinutes: today.exerciseMinutes.round(),
+        );
+      } catch (e, stack) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[DailySteps] Profile sync failed — exception: $e');
+          // ignore: avoid_print
+          print('[DailySteps] Profile sync failed — stack: $stack');
+        }
+      }
     });
   }
 

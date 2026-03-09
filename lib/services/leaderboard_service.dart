@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LeaderboardService {
@@ -17,6 +18,11 @@ class LeaderboardService {
   /// Fetches leaderboard rows for a given group ID and time range.
   /// Returns a list of maps with: user_id, display_name, email, avatar_url, total_steps, total_miles, etc.
   Future<List<Map<String, dynamic>>> fetchGroupLeaderboard(String groupId, {String range = 'Today'}) async {
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[Leaderboard] READ — group_id: $groupId, range: $range');
+    }
+
     // 1. Fetch all members of the group
     final memberRows = await _supabase
         .from('group_members')
@@ -27,6 +33,11 @@ class LeaderboardService {
         .map((r) => r['user_id']?.toString())
         .whereType<String>()
         .toList();
+
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[Leaderboard] READ — group_members user_ids: $userIds');
+    }
 
     if (userIds.isEmpty) return [];
 
@@ -65,6 +76,15 @@ class LeaderboardService {
         .gte('date', startDateStr);
 
     final stepsData = List<Map<String, dynamic>>.from(stepsResponse);
+
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[Leaderboard] READ — daily_steps rows returned: ${stepsData.length}');
+      for (final row in stepsData) {
+        // ignore: avoid_print
+        print('[Leaderboard]   daily_steps row: user_id=${row['user_id']}, date=${row['date']}, steps=${row['steps']}, miles=${row['miles']}, active_calories=${row['active_calories']}, exercise_minutes=${row['exercise_minutes']}');
+      }
+    }
 
     // 5. Aggregate stats per user
     final aggregatedStats = <String, Map<String, dynamic>>{};
@@ -107,6 +127,15 @@ class LeaderboardService {
 
     // 7. Sort by steps descending
     results.sort((a, b) => (b['total_steps'] as int).compareTo(a['total_steps'] as int));
+
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[Leaderboard] READ — final mapped leaderboard rows: ${results.length}');
+      for (final row in results) {
+        // ignore: avoid_print
+        print('[Leaderboard]   row: user_id=${row['user_id']}, display_name=${row['display_name']}, total_steps=${row['total_steps']}, total_miles=${row['total_miles']}, total_active_calories=${row['total_active_calories']}, total_exercise_minutes=${row['total_exercise_minutes']}');
+      }
+    }
 
     return results;
   }

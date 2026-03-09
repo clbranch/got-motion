@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/motion_stats.dart';
+import '../models/today_metrics.dart';
+import '../services/daily_steps_service.dart';
 import '../services/group_service.dart';
 import '../services/leaderboard_service.dart';
 import '../services/selected_group_service.dart';
@@ -27,6 +30,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   final GroupService _groupService = GroupService();
   final LeaderboardService _leaderboardService = LeaderboardService();
+  final DailyStepsService _dailyStepsService = DailyStepsService();
 
   /// User's groups from Supabase; loaded on screen open.
   List<String> _groups = [];
@@ -37,6 +41,36 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   bool _loading = true;
   String? _error;
   String _selectedRange = 'Today';
+
+  /// After loading today's health, upsert to Supabase so group leaderboard has shared data (background).
+  /// On success, re-fetches leaderboard from Supabase so shared rankings are fresh.
+  void _syncTodayToSupabase(String userId, TodayMetrics today) {
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[DailySteps] Triggering sync from Leaderboard');
+    }
+    Future(() async {
+      try {
+        await _dailyStepsService.upsertDailySteps(
+          userId: userId,
+          date: DateTime.now(),
+          steps: today.steps,
+          miles: today.distanceMiles,
+          activeCalories: today.activeEnergyCalories.round(),
+          exerciseMinutes: today.exerciseMinutes.round(),
+        );
+        // Re-fetch leaderboard so both users' shared data is shown (no stale cache).
+        if (mounted) await _loadFromSupabase();
+      } catch (e, stack) {
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[DailySteps] Leaderboard sync failed — exception: $e');
+          // ignore: avoid_print
+          print('[DailySteps] Leaderboard sync failed — stack: $stack');
+        }
+      }
+    });
+  }
 
   /// Load user's groups from Supabase, set first as selected, then load leaderboard for that group.
   Future<void> _loadGroupsAndLeaderboard() async {
@@ -98,11 +132,24 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       _error = null;
     });
     try {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('[Leaderboard] LeaderboardScreen — group_id: $groupId, group_name: $_selectedGroupName, range: $_selectedRange');
+      }
       final rows = await _leaderboardService.fetchGroupLeaderboard(
         groupId,
         range: _selectedRange,
       );
       if (!mounted) return;
+
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('[Leaderboard] LeaderboardScreen — rows from Supabase: ${rows.length}');
+        for (final r in rows) {
+          // ignore: avoid_print
+          print('[Leaderboard]   Supabase row: user_id=${r['user_id']}, total_steps=${r['total_steps']}');
+        }
+      }
 
       final currentUser = Supabase.instance.client.auth.currentUser;
       final currentUserId = currentUser?.id;
@@ -167,8 +214,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           avatarUrl: myAvatarUrl,
           previousRank: null,
         );
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print('[Leaderboard] LeaderboardScreen — INJECTING local Health row for current user: name=$myName, steps=${today.steps}, miles=${today.distanceMiles}. Other users shown from Supabase only.');
+        }
         list = [me, ...list];
         list.sort((a, b) => b.steps.compareTo(a.steps));
+
+        // Sync current user's today stats to Supabase so group leaderboard has shared data.
+        _syncTodayToSupabase(currentUserId, today);
       }
 
       setState(() {

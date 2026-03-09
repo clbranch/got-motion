@@ -1,14 +1,21 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'services/daily_steps_service.dart';
 import 'screens/auth_gate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  const supabaseUrl = 'https://nrhtkdeyznflvcevagjc.supabase.co';
   await Supabase.initialize(
-    url: 'https://nrhtkdeyznflvcevagjc.supabase.co',
+    url: supabaseUrl,
     anonKey: 'sb_publishable_hT9YqLCUeYmMHZ-fuoE0-Q_ZZ_3st-X',
   );
+  if (kDebugMode) {
+    debugPrint('[Supabase] Project URL (app is using this project): $supabaseUrl');
+    DailyStepsService.debugSupabaseUrl = supabaseUrl;
+  }
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Color(0xFF0B0B0F),
