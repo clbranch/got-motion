@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../services/auth_service.dart';
 
@@ -59,6 +60,15 @@ class _LoginScreenState extends State<LoginScreen> {
     Navigator.of(context).pushNamed('/reset-password');
   }
 
+  Future<void> _signInWithGoogle() async {
+    _clearError();
+    setState(() => _loading = true);
+    final error = await AuthService.signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) setState(() => _errorMessage = error);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -75,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const SizedBox(height: 24),
                   Text(
-                    'Got Motion',
+                    'Motion',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 28,
@@ -102,6 +112,41 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        FilledButton.icon(
+                          onPressed: _loading ? null : _signInWithGoogle,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          icon: const FaIcon(FontAwesomeIcons.google, size: 18),
+                          label: const Text('Continue with Google'),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Divider(height: 1, color: Colors.white.withValues(alpha: 0.14)),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(
+                                'or use email',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white.withValues(alpha: 0.45),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Divider(height: 1, color: Colors.white.withValues(alpha: 0.14)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
                         _buildEmailField(),
                         const SizedBox(height: 16),
                         _buildPasswordField(),
@@ -138,8 +183,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         FilledButton(
                           onPressed: _loading ? null : _signIn,
                           style: FilledButton.styleFrom(
-                            backgroundColor: _accent,
-                            foregroundColor: Colors.white,
+                            backgroundColor: Colors.white.withValues(alpha: 0.08),
+                            foregroundColor: Colors.white.withValues(alpha: 0.9),
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/deep_link_handler.dart';
+import '../services/auth_profile_sync_service.dart';
 import '../services/supabase_service.dart';
 import 'create_account_screen.dart';
 import 'login_screen.dart';
@@ -22,6 +23,7 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
+  final AuthProfileSyncService _authProfileSyncService = AuthProfileSyncService();
   bool _isLoggedIn = false;
   bool _initialized = false;
   bool _pendingPasswordSet = false;
@@ -47,8 +49,15 @@ class _AuthGateState extends State<AuthGate> {
           _pendingPasswordSet = true;
           // ignore: avoid_print
           print('[Auth] onAuthStateChange: recovery callback -> SetNewPasswordScreen (not ForgotPasswordScreen)');
+        } else if (data.event == AuthChangeEvent.signedIn) {
+          // Defensive: clear any stale recovery state on normal sign-in so we
+          // always route to MainNav after OAuth/email login.
+          _pendingPasswordSet = false;
         }
       });
+    }
+    if (data.event == AuthChangeEvent.signedIn && data.session != null) {
+      _syncProfileFromAuth();
     }
   }
 
@@ -71,6 +80,14 @@ class _AuthGateState extends State<AuthGate> {
       print('[Auth] getInitialUri after delay: ${uri != null ? "got uri" : "still null"}');
     }
     if (uri == null) return false;
+
+    final inviteCode = DeepLinkHandler.extractInviteCode(uri);
+    if (inviteCode != null) {
+      DeepLinkHandler.pendingInviteCode.value = inviteCode;
+      // ignore: avoid_print
+      print('[Auth] _handleInitialLink: saved pendingInviteCode=$inviteCode');
+    }
+
     final isRecoveryHandled = await DeepLinkHandler.handleAuthCallback(uri);
     // ignore: avoid_print
     print('[Auth] _handleInitialLink: isRecoveryHandled=$isRecoveryHandled');
@@ -80,6 +97,14 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _onLink(Uri uri) async {
     // ignore: avoid_print
     print('[Auth] _onLink (warm): ${uri.toString().length > 60 ? "uri received" : uri}');
+    
+    final inviteCode = DeepLinkHandler.extractInviteCode(uri);
+    if (inviteCode != null) {
+      DeepLinkHandler.pendingInviteCode.value = inviteCode;
+      // ignore: avoid_print
+      print('[Auth] _onLink: saved pendingInviteCode=$inviteCode');
+    }
+
     final isRecoveryHandled = await DeepLinkHandler.handleAuthCallback(uri);
     if (mounted && isRecoveryHandled) {
       setState(() => _pendingPasswordSet = true);
@@ -98,8 +123,19 @@ class _AuthGateState extends State<AuthGate> {
       // Never clear _pendingPasswordSet if already set by onAuthStateChange (passwordRecovery).
       _pendingPasswordSet = _pendingPasswordSet || wasRecoveryFromLink;
     });
+    if (session != null) {
+      _syncProfileFromAuth();
+    }
     // ignore: avoid_print
     print('[Auth] _checkSession: session=${session != null}, wasRecoveryFromLink=$wasRecoveryFromLink -> _pendingPasswordSet=${_pendingPasswordSet}');
+  }
+
+  Future<void> _syncProfileFromAuth() async {
+    try {
+      await _authProfileSyncService.syncCurrentUserFromAuth();
+    } catch (_) {
+      // Best effort sync only; auth flow should never fail due to avatar refresh.
+    }
   }
 
   @override

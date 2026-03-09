@@ -1,8 +1,14 @@
-import 'package:flutter/material.dart';
-import '../services/health_service.dart';
-import '../models/today_metrics.dart';
+import 'dart:io';
 
-/// V1 Profile shell: header, avatar, display name, today summary, weekly & stats placeholders.
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../models/today_metrics.dart';
+import '../services/health_service.dart';
+import '../services/profile_service.dart';
+
+/// Profile: avatar, display name, today summary. Edit and avatar upload via ProfileService.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -16,8 +22,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const Color _accent = Color(0xFF3B82F6);
   static const double _pagePadding = 16.0;
 
+  final ProfileService _profileService = ProfileService();
+
   TodayMetrics? _today;
+  ProfileData? _profile;
   bool _loading = true;
+  bool _savingAvatar = false;
 
   @override
   void initState() {
@@ -26,10 +36,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _load() async {
-    final today = await HealthService.getTodayMetrics();
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _profile = null;
+        _today = TodayMetrics.zero;
+        _loading = false;
+      });
+      return;
+    }
+    final results = await Future.wait([
+      HealthService.getTodayMetrics(),
+      _profileService.getCurrentProfile(),
+    ]);
     if (!mounted) return;
     setState(() {
-      _today = today;
+      _today = results[0] as TodayMetrics;
+      _profile = results[1] as ProfileData?;
       _loading = false;
     });
   }
@@ -78,21 +102,73 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildAvatarAndName() {
+    final profile = _profile;
+    final displayLabel = profile?.displayLabel ?? 'User';
+    final avatarUrl = profile?.avatarUrl;
+
     return Column(
       children: [
-        Container(
-          width: 88,
-          height: 88,
-          decoration: BoxDecoration(
-            color: _cardBg,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+        GestureDetector(
+          onTap: _savingAvatar ? null : _pickAndUploadAvatar,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: _cardBg,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+                ),
+                child: ClipOval(
+                  child: (avatarUrl != null && avatarUrl.isNotEmpty)
+                      ? Image.network(
+                          avatarUrl,
+                          width: 88,
+                          height: 88,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => _avatarFallback(displayLabel),
+                        )
+                      : _avatarFallback(displayLabel),
+                ),
+              ),
+              if (_savingAvatar)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: _accent,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _background, width: 1.5),
+                    ),
+                    child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
+                  ),
+                ),
+            ],
           ),
-          child: Icon(Icons.person_rounded, size: 44, color: Colors.white.withValues(alpha: 0.4)),
         ),
         const SizedBox(height: 12),
         Text(
-          'Display Name',
+          displayLabel,
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -101,14 +177,134 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          '@username',
+          profile?.email ?? '',
           style: TextStyle(
             fontSize: 14,
             color: Colors.white.withValues(alpha: 0.5),
           ),
         ),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          onPressed: _loading ? null : _openEditProfile,
+          icon: const Icon(Icons.edit_rounded, size: 18),
+          label: const Text('Edit profile'),
+          style: TextButton.styleFrom(
+            foregroundColor: _accent,
+          ),
+        ),
       ],
     );
+  }
+
+  Widget _avatarFallback(String label) {
+    return Center(
+      child: Text(
+        label.isNotEmpty ? label[0].toUpperCase() : '?',
+        style: TextStyle(
+          fontSize: 36,
+          fontWeight: FontWeight.w700,
+          color: Colors.white.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final picker = ImagePicker();
+    final x = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 85);
+    if (x == null || !mounted) return;
+    setState(() => _savingAvatar = true);
+    try {
+      final file = File(x.path);
+      final url = await _profileService.uploadAvatar(file);
+      await _profileService.updateProfile(
+        avatarUrl: url,
+        avatarSource: 'custom',
+      );
+      if (!mounted) return;
+      setState(() {
+        _profile = _profile != null
+            ? ProfileData(
+                id: _profile!.id,
+                email: _profile!.email,
+                fullName: _profile!.fullName,
+                displayName: _profile!.displayName,
+                avatarUrl: url,
+                googleAvatarUrl: _profile!.googleAvatarUrl,
+                avatarSource: 'custom',
+                googleAvatarLastSyncedAt: _profile!.googleAvatarLastSyncedAt,
+                updatedAt: DateTime.now(),
+              )
+            : null;
+        _savingAvatar = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _savingAvatar = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Couldn\'t update photo. Try again.'),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openEditProfile() async {
+    final profile = _profile;
+    if (profile == null) return;
+    final displayNameController = TextEditingController(text: profile.displayName ?? '');
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: _cardBg,
+        title: Text('Edit profile', style: TextStyle(color: Colors.white.withValues(alpha: 0.95))),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: displayNameController,
+              decoration: InputDecoration(
+                labelText: 'Display name',
+                labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
+              ),
+              style: const TextStyle(color: Colors.white),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: _accent),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true || !mounted) return;
+    try {
+      await _profileService.updateProfile(
+        displayName: displayNameController.text.trim().isEmpty ? null : displayNameController.text.trim(),
+      );
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Couldn\'t save. Try again.'),
+          backgroundColor: Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Widget _buildTodaySummary() {

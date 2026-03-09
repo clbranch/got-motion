@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/motion_stats.dart';
+import '../services/group_service.dart';
 import '../services/leaderboard_service.dart';
+import '../services/selected_group_service.dart';
+import '../services/health_service.dart';
+import '../services/profile_service.dart';
 import '../widgets/leaderboard_card.dart';
 import 'player_detail_screen.dart';
 
@@ -20,35 +25,152 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   static const List<String> _rangeOptions = ['Today', 'This Week', 'This Month'];
 
-  /// Current group name; default for v1. Later can be loaded from Supabase when user selects/joins a group.
-  String currentGroupName = 'Rich-Men';
-
+  final GroupService _groupService = GroupService();
   final LeaderboardService _leaderboardService = LeaderboardService();
+
+  /// User's groups from Supabase; loaded on screen open.
+  List<String> _groups = [];
+  /// Selected group for leaderboard; first group when available.
+  String? _selectedGroupName;
 
   List<MotionStats> _leaderboard = [];
   bool _loading = true;
   String? _error;
   String _selectedRange = 'Today';
 
-  /// Load leaderboard from Supabase. Maps view: display_name->name, total_steps->steps, total_miles->miles, total_active_calories->activeCalories, total_exercise_minutes->exerciseMinutes.
+  /// Load user's groups from Supabase, set first as selected, then load leaderboard for that group.
+  Future<void> _loadGroupsAndLeaderboard() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _groups = [];
+        _selectedGroupName = null;
+        _loading = false;
+      });
+      return;
+    }
+    try {
+      final rows = await _groupService.fetchUserGroups(user.id);
+      if (!mounted) return;
+      final names = rows
+          .map((r) => (r['groups'] as Map<String, dynamic>?)?['name']?.toString())
+          .whereType<String>()
+          .toList();
+      selectedGroupService.setGroupsFromFetchRows(rows);
+      setState(() {
+        _groups = names;
+        _selectedGroupName = selectedGroupService.selectedGroupName ?? (names.isNotEmpty ? names.first : null);
+      });
+      if (_selectedGroupName != null) {
+        _loadFromSupabase();
+      } else {
+        setState(() {
+          _leaderboard = [];
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _groups = [];
+        _selectedGroupName = null;
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  /// Load leaderboard from Supabase for [_selectedGroupName]. Maps view: display_name->name, total_steps->steps, total_miles->miles, total_active_calories->activeCalories, total_exercise_minutes->exerciseMinutes.
   Future<void> _loadFromSupabase() async {
+    final groupId = selectedGroupService.selectedGroupId;
+    if (groupId == null || groupId.isEmpty) {
+      setState(() {
+        _leaderboard = [];
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final rows = await _leaderboardService.fetchGroupLeaderboard(currentGroupName);
+      final rows = await _leaderboardService.fetchGroupLeaderboard(
+        groupId,
+        range: _selectedRange,
+      );
       if (!mounted) return;
-      final list = rows
+
+      final currentUser = Supabase.instance.client.auth.currentUser;
+      final currentUserId = currentUser?.id;
+      final currentUserEmail = currentUser?.email?.toLowerCase();
+
+      var list = <MotionStats>[];
+      Map<String, dynamic>? myRow;
+
+      // Filter out the current user's row if viewing 'Today' to inject live data.
+      final filteredRows = rows.where((row) {
+        if (_selectedRange == 'Today') {
+          final rowUserId = row['user_id']?.toString();
+          final rowEmail = row['email']?.toString().toLowerCase();
+          final rowDisplayName = row['display_name']?.toString().toLowerCase();
+
+          bool isMe = (currentUserId != null && rowUserId == currentUserId) ||
+              (currentUserEmail != null && rowEmail == currentUserEmail) ||
+              (currentUserEmail != null && rowDisplayName == currentUserEmail);
+
+          if (isMe) {
+            myRow = row;
+            return false;
+          }
+        }
+        return true;
+      }).toList();
+
+      list = filteredRows
           .map((row) => MotionStats(
-                name: row['display_name'] as String? ?? 'Unknown',
+                name: LeaderboardService.resolveDisplayName(row),
                 steps: (row['total_steps'] as num?)?.toInt() ?? 0,
                 miles: (row['total_miles'] as num?)?.toDouble() ?? 0.0,
                 activeCalories: (row['total_active_calories'] as num?)?.toInt() ?? 0,
                 exerciseMinutes: (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
+                avatarUrl: row['avatar_url']?.toString(),
                 previousRank: null,
               ))
           .toList();
+
+      // Inject current user's real-time Today stats if range is Today
+      if (_selectedRange == 'Today' && currentUserId != null) {
+        final today = await HealthService.getTodayMetrics();
+
+        String myName = 'Unknown';
+        String? myAvatarUrl;
+
+        if (myRow != null) {
+          myName = LeaderboardService.resolveDisplayName(myRow!);
+          myAvatarUrl = myRow!['avatar_url']?.toString();
+        } else {
+          final profile = await ProfileService().getCurrentProfile();
+          myName = profile?.displayLabel ?? currentUserEmail ?? 'Unknown';
+          myAvatarUrl = profile?.avatarUrl;
+        }
+
+        final me = MotionStats(
+          name: myName,
+          steps: today.steps,
+          miles: today.distanceMiles,
+          activeCalories: today.activeEnergyCalories.round(),
+          exerciseMinutes: today.exerciseMinutes.round(),
+          avatarUrl: myAvatarUrl,
+          previousRank: null,
+        );
+        list = [me, ...list];
+        list.sort((a, b) => b.steps.compareTo(a.steps));
+      }
+
       setState(() {
         _leaderboard = list;
         _loading = false;
@@ -67,10 +189,21 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadFromSupabase();
+    _loadGroupsAndLeaderboard();
   }
 
   Widget _buildListContent() {
+    if (_groups.isEmpty && !_loading) {
+      return Center(
+        child: Text(
+          'No groups yet.',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.white.withValues(alpha: 0.6),
+          ),
+        ),
+      );
+    }
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(color: _accent),
@@ -143,14 +276,49 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(_pagePadding, 16, _pagePadding, 0),
-            child: Text(
-              '$currentGroupName ▾',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: _accent,
-              ),
-            ),
+            child: _groups.isEmpty
+                ? Text(
+                    'No groups yet',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
+                  )
+                : PopupMenuButton<String>(
+                    initialValue: _selectedGroupName!,
+                    offset: const Offset(0, 32),
+                    padding: EdgeInsets.zero,
+                    color: _background,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    onSelected: (String name) {
+                      setState(() => _selectedGroupName = name);
+                      selectedGroupService.setSelectedGroup(name);
+                      _loadFromSupabase();
+                    },
+                    itemBuilder: (context) => _groups
+                        .map((g) => PopupMenuItem<String>(
+                              value: g,
+                              child: Text(
+                                g,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                    child: Text(
+                      '${_selectedGroupName ?? ''} ▾',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: _accent,
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(height: 16),
           Padding(
@@ -207,7 +375,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
           ),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: _loadFromSupabase,
+              onRefresh: _loadGroupsAndLeaderboard,
               color: _accent,
               child: _buildListContent(),
             ),

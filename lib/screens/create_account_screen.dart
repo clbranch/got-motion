@@ -20,6 +20,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _displayNameController = TextEditingController();
 
   bool _loading = false;
   String? _errorMessage;
@@ -30,6 +31,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _displayNameController.dispose();
     super.dispose();
   }
 
@@ -40,6 +42,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     final error = await AuthService.signUp(
       email: _emailController.text.trim(),
       password: _passwordController.text,
+      displayName: _displayNameController.text.trim(),
       emailRedirectTo: AuthService.authCallbackDeepLink,
     );
     if (!mounted) return;
@@ -158,6 +161,20 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  TextFormField(
+                    controller: _displayNameController,
+                    keyboardType: TextInputType.name,
+                    autocorrect: false,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: _inputDecoration('Display name'),
+                    style: const TextStyle(color: Colors.white),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Enter a display name';
+                      return null;
+                    },
+                    onChanged: (_) => _clearError(),
+                  ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,

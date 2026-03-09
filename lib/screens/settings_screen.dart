@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import 'settings_account_screen.dart';
+import 'settings_notifications_screen.dart';
+import 'settings_health_permissions_screen.dart';
+import 'settings_connected_devices_screen.dart';
+import 'settings_privacy_screen.dart';
 
 /// V1 Settings shell: header and list of placeholder sections.
 class SettingsScreen extends StatelessWidget {
@@ -20,7 +25,7 @@ class SettingsScreen extends StatelessWidget {
           children: [
             _buildHeader(),
             const SizedBox(height: 24),
-            _buildSettingsList(),
+            _buildSettingsList(context),
           ],
         ),
       ),
@@ -41,13 +46,53 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSettingsList() {
+  Widget _buildSettingsList(BuildContext context) {
     final items = [
-      _SettingsItem(icon: Icons.person_outline_rounded, label: 'Account', onTap: () {}),
-      _SettingsItem(icon: Icons.notifications_outlined, label: 'Notifications', onTap: () {}),
-      _SettingsItem(icon: Icons.favorite_border_rounded, label: 'Health Permissions', onTap: () {}),
-      _SettingsItem(icon: Icons.watch_rounded, label: 'Connected Devices', onTap: () {}),
-      _SettingsItem(icon: Icons.lock_outline_rounded, label: 'Privacy', onTap: () {}),
+      _SettingsItem(
+        icon: Icons.person_outline_rounded,
+        label: 'Account',
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsAccountScreen()),
+          );
+        },
+      ),
+      _SettingsItem(
+        icon: Icons.notifications_outlined,
+        label: 'Notifications',
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsNotificationsScreen()),
+          );
+        },
+      ),
+      _SettingsItem(
+        icon: Icons.favorite_border_rounded,
+        label: 'Health Permissions',
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsHealthPermissionsScreen()),
+          );
+        },
+      ),
+      _SettingsItem(
+        icon: Icons.watch_rounded,
+        label: 'Connected Devices',
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsConnectedDevicesScreen()),
+          );
+        },
+      ),
+      _SettingsItem(
+        icon: Icons.lock_outline_rounded,
+        label: 'Privacy',
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SettingsPrivacyScreen()),
+          );
+        },
+      ),
       _SettingsItem(
         icon: Icons.logout_rounded,
         label: 'Sign Out',

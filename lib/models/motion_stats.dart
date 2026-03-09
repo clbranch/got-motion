@@ -6,6 +6,7 @@ class MotionStats {
     required this.miles,
     required this.activeCalories,
     required this.exerciseMinutes,
+    this.avatarUrl,
     this.previousRank,
   });
 
@@ -14,6 +15,8 @@ class MotionStats {
   final double miles;
   final int activeCalories;
   final int exerciseMinutes;
+  /// Profile avatar URL when available (e.g. from group_leaderboard view).
+  final String? avatarUrl;
   /// Previous period rank; null treated as same as current rank (delta = 0).
   final int? previousRank;
 }

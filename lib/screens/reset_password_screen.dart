@@ -23,6 +23,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _loading = false;
   String? _errorMessage;
   bool _success = false;
+  String? _lastResetEmail;
+  DateTime? _lastResetSentAt;
+  static const Duration _resetCooldown = Duration(seconds: 60);
 
   @override
   void dispose() {
@@ -31,11 +34,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   Future<void> _sendResetLink() async {
+    if (_loading) return;
     _clearError();
     if (!_formKey.currentState!.validate()) return;
+    final email = _emailController.text.trim();
+    if (_lastResetEmail == email && _lastResetSentAt != null &&
+        DateTime.now().difference(_lastResetSentAt!) < _resetCooldown) {
+      setState(() => _errorMessage = 'Please wait a moment before requesting another reset email.');
+      return;
+    }
     setState(() => _loading = true);
     final error = await AuthService.resetPasswordForEmail(
-      email: _emailController.text.trim(),
+      email: email,
       redirectTo: AuthService.authCallbackDeepLink,
     );
     if (!mounted) return;
@@ -45,6 +55,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         _errorMessage = error;
       } else {
         _success = true;
+        _lastResetEmail = email;
+        _lastResetSentAt = DateTime.now();
       }
     });
   }

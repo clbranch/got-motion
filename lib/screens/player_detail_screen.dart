@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/motion_stats.dart';
 
-/// V1 player profile screen: avatar, name, username, hero step count, stats rows.
+/// V1 player profile screen: avatar, name, hero step count, stats rows.
 class PlayerDetailScreen extends StatelessWidget {
   const PlayerDetailScreen({
     super.key,
@@ -32,10 +32,6 @@ class PlayerDetailScreen extends StatelessWidget {
       if (i + 3 < s.length) buf.write(',');
     }
     return buf.toString();
-  }
-
-  static String _usernameFromName(String name) {
-    return '@${name.toLowerCase().replaceAll(' ', '')}';
   }
 
   @override
@@ -82,13 +78,7 @@ class PlayerDetailScreen extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  _usernameFromName(stats.name),
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Colors.white.withValues(alpha: 0.5),
-                  ),
-                ),
+                const SizedBox.shrink(),
               ],
             ),
           ),

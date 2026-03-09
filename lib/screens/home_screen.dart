@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/motion_stats.dart';
 import '../models/today_metrics.dart';
+import '../services/daily_steps_service.dart';
 import '../services/health_service.dart';
-import '../services/mock_motion_service.dart';
+import '../services/leaderboard_service.dart';
+import '../services/selected_group_service.dart';
 import 'leaderboard_screen.dart';
 import 'player_detail_screen.dart';
 
@@ -11,9 +14,11 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.onSeeAllLeaderboard,
+    this.onOpenGroupTab,
   });
 
   final VoidCallback? onSeeAllLeaderboard;
+  final VoidCallback? onOpenGroupTab;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -24,7 +29,6 @@ class _HomeScreenState extends State<HomeScreen> {
   static const Color _accent = Color(0xFF3B82F6);
   static const double _pagePadding = 16.0;
 
-  String _groupName = 'Rich-Men';
   TodayMetrics _today = TodayMetrics.zero;
   int _weekStepsTotal = 0;
   List<int> _weekStepsByDay = List.filled(7, 0);
@@ -34,24 +38,93 @@ class _HomeScreenState extends State<HomeScreen> {
   double? _standHours;
   bool _loading = true;
 
+  final DailyStepsService _dailyStepsService = DailyStepsService();
+  final LeaderboardService _leaderboardService = LeaderboardService();
+
+  /// After health data loads, upsert today's stats to Supabase for the current user (background, no UI change).
+  Future<void> _syncTodayToSupabase(TodayMetrics today) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    // ignore: avoid_print
+    if (user == null) {
+      print('[DailySteps] current user id: none (not signed in), skip upsert');
+      return;
+    }
+    // ignore: avoid_print
+    print('[DailySteps] current user id: ${user.id}');
+    final steps = today.steps;
+    final miles = today.distanceMiles;
+    final activeCalories = today.activeEnergyCalories.round();
+    final exerciseMinutes = today.exerciseMinutes.round();
+    // ignore: avoid_print
+    print('[DailySteps] values being written: steps=$steps, miles=$miles, activeCalories=$activeCalories, exerciseMinutes=$exerciseMinutes');
+    try {
+      await _dailyStepsService.upsertDailySteps(
+        userId: user.id,
+        date: DateTime.now(),
+        steps: steps,
+        miles: miles,
+        activeCalories: activeCalories,
+        exerciseMinutes: exerciseMinutes,
+      );
+      // ignore: avoid_print
+      print('[DailySteps] upsert success');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[DailySteps] upsert failure: $e');
+    }
+  }
+
   Future<void> _loadData() async {
     final today = await HealthService.getTodayMetrics();
     final weekSteps = await HealthService.getWeekStepsTotal();
     final weekByDay = await HealthService.getWeekStepsByDay();
     final standHours = await HealthService.getTodayStandHours();
-    var list = MockMotionService.getLeaderboardForRange('Today');
-    final me = MotionStats(
-      name: 'You',
-      steps: today.steps,
-      miles: today.distanceMiles,
-      activeCalories: today.activeEnergyCalories.round(),
-      exerciseMinutes: today.exerciseMinutes.round(),
-      previousRank: null,
-    );
-    list = [me, ...list];
-    list.sort((a, b) => b.steps.compareTo(a.steps));
-    final top = list.take(5).toList();
-    final newRank = list.indexWhere((e) => e.name == 'You') + 1;
+
+    final selectedGroupId = selectedGroupService.selectedGroupId;
+    List<MotionStats> top = [];
+    int newRank = 0;
+    if (selectedGroupId != null && selectedGroupId.isNotEmpty) {
+      try {
+        final currentUser = Supabase.instance.client.auth.currentUser;
+        final currentUserId = currentUser?.id;
+        final currentUserEmail = currentUser?.email?.toLowerCase();
+        final rows = await _leaderboardService.fetchGroupLeaderboard(selectedGroupId);
+        final filteredRows = rows.where((row) {
+          final rowUserId = row['user_id']?.toString();
+          final rowEmail = row['email']?.toString().toLowerCase();
+          final rowDisplayName = row['display_name']?.toString().toLowerCase();
+          if (currentUserId != null && rowUserId == currentUserId) return false;
+          if (currentUserEmail != null && rowEmail == currentUserEmail) return false;
+          // Some sources put email in display_name; avoid duplicate "You" row.
+          if (currentUserEmail != null && rowDisplayName == currentUserEmail) return false;
+          return true;
+        }).toList();
+        var list = filteredRows
+            .map((row) => MotionStats(
+                  name: LeaderboardService.resolveDisplayName(row),
+                  steps: (row['total_steps'] as num?)?.toInt() ?? 0,
+                  miles: (row['total_miles'] as num?)?.toDouble() ?? 0.0,
+                  activeCalories: (row['total_active_calories'] as num?)?.toInt() ?? 0,
+                  exerciseMinutes: (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
+                  previousRank: null,
+                ))
+            .toList();
+        final me = MotionStats(
+          name: 'You',
+          steps: today.steps,
+          miles: today.distanceMiles,
+          activeCalories: today.activeEnergyCalories.round(),
+          exerciseMinutes: today.exerciseMinutes.round(),
+          previousRank: null,
+        );
+        list = [me, ...list];
+        list.sort((a, b) => b.steps.compareTo(a.steps));
+        top = list.take(5).toList();
+        newRank = list.indexWhere((e) => e.name == 'You') + 1;
+      } catch (_) {
+        top = [];
+      }
+    }
 
     if (!mounted) return;
     setState(() {
@@ -64,12 +137,25 @@ class _HomeScreenState extends State<HomeScreen> {
       _standHours = standHours;
       _loading = false;
     });
+    // Background: upsert today's health metrics to Supabase daily_steps (current user only).
+    _syncTodayToSupabase(today);
   }
 
   @override
   void initState() {
     super.initState();
+    selectedGroupService.addListener(_onSelectedGroupChanged);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    selectedGroupService.removeListener(_onSelectedGroupChanged);
+    super.dispose();
+  }
+
+  void _onSelectedGroupChanged() {
+    if (mounted) _loadData();
   }
 
   @override
@@ -129,9 +215,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () {
-                // TODO: open group switcher
-              },
+              onTap: widget.onOpenGroupTab,
               borderRadius: BorderRadius.circular(24),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -157,11 +241,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      _groupName,
-                      style: const TextStyle(
+                      selectedGroupService.selectedGroupName ?? 'No group',
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                        color: (selectedGroupService.selectedGroupName ?? '').isEmpty
+                            ? Colors.white.withValues(alpha: 0.5)
+                            : Colors.white,
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -576,19 +662,33 @@ class _MiniLeaderboardSection extends StatelessWidget {
             color: const Color(0xFF14141A),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Column(
-            children: [
-              for (var i = 0; i < list.length; i++) ...[
-                _MiniLeaderboardRow(
-                  rank: i + 1,
-                  stats: list[i],
-                  isYou: list[i].name == 'You',
+          child: list.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Center(
+                    child: Text(
+                      'Create or join a group to see the leaderboard.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : Column(
+                  children: [
+                    for (var i = 0; i < list.length; i++) ...[
+                      _MiniLeaderboardRow(
+                        rank: i + 1,
+                        stats: list[i],
+                        isYou: list[i].name == 'You',
+                      ),
+                      if (i < list.length - 1)
+                        Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                    ],
+                  ],
                 ),
-                if (i < list.length - 1)
-                  Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
-              ],
-            ],
-          ),
         ),
       ],
     );

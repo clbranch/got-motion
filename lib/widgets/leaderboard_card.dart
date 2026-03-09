@@ -45,6 +45,24 @@ class LeaderboardCard extends StatelessWidget {
         children: [
           _buildRank(),
           const SizedBox(width: 12),
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: Colors.white.withValues(alpha: 0.1),
+            backgroundImage: (stats.avatarUrl != null && stats.avatarUrl!.isNotEmpty)
+                ? NetworkImage(stats.avatarUrl!)
+                : null,
+            child: (stats.avatarUrl == null || stats.avatarUrl!.isEmpty)
+                ? Text(
+                    stats.name.isNotEmpty ? stats.name[0].toUpperCase() : '?',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
