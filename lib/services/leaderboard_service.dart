@@ -17,7 +17,11 @@ class LeaderboardService {
 
   /// Fetches leaderboard rows for a given group ID and time range.
   /// Returns a list of maps with: user_id, display_name, email, avatar_url, total_steps, total_miles, etc.
-  Future<List<Map<String, dynamic>>> fetchGroupLeaderboard(String groupId, {String range = 'Today'}) async {
+  Future<List<Map<String, dynamic>>> fetchGroupLeaderboard(
+    String groupId, {
+    String range = 'Today',
+    DateTime? date,
+  }) async {
     if (kDebugMode) {
       // ignore: avoid_print
       print('[Leaderboard] READ — group_id: $groupId, range: $range');
@@ -29,10 +33,9 @@ class LeaderboardService {
         .select('user_id')
         .eq('group_id', groupId);
 
-    final List<String> userIds = List<Map<String, dynamic>>.from(memberRows)
-        .map((r) => r['user_id']?.toString())
-        .whereType<String>()
-        .toList();
+    final List<String> userIds = List<Map<String, dynamic>>.from(
+      memberRows,
+    ).map((r) => r['user_id']?.toString()).whereType<String>().toList();
 
     if (kDebugMode) {
       // ignore: avoid_print
@@ -60,7 +63,11 @@ class LeaderboardService {
       startDate = DateTime(now.year, now.month, now.day);
     } else if (range == 'This Week') {
       // Week starts on Monday
-      startDate = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+      startDate = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(Duration(days: now.weekday - 1));
     } else if (range == 'This Month') {
       startDate = DateTime(now.year, now.month, 1);
     } else {
@@ -69,20 +76,26 @@ class LeaderboardService {
     final startDateStr = startDate.toIso8601String().split('T').first;
 
     // 4. Fetch daily_steps for these users within the date range
-    final stepsResponse = await _supabase
+    var stepsQuery = _supabase
         .from('daily_steps')
         .select()
-        .inFilter('user_id', userIds)
-        .gte('date', startDateStr);
+        .inFilter('user_id', userIds);
+    final stepsResponse = date == null
+        ? await stepsQuery.gte('date', startDateStr)
+        : await stepsQuery.eq('date', date.toIso8601String().split('T').first);
 
     final stepsData = List<Map<String, dynamic>>.from(stepsResponse);
 
     if (kDebugMode) {
       // ignore: avoid_print
-      print('[Leaderboard] READ — daily_steps rows returned: ${stepsData.length}');
+      print(
+        '[Leaderboard] READ — daily_steps rows returned: ${stepsData.length}',
+      );
       for (final row in stepsData) {
         // ignore: avoid_print
-        print('[Leaderboard]   daily_steps row: user_id=${row['user_id']}, date=${row['date']}, steps=${row['steps']}, miles=${row['miles']}, active_calories=${row['active_calories']}, exercise_minutes=${row['exercise_minutes']}');
+        print(
+          '[Leaderboard]   daily_steps row: user_id=${row['user_id']}, date=${row['date']}, steps=${row['steps']}, miles=${row['miles']}, active_calories=${row['active_calories']}, exercise_minutes=${row['exercise_minutes']}',
+        );
       }
     }
 
@@ -100,10 +113,14 @@ class LeaderboardService {
     for (final row in stepsData) {
       final uid = row['user_id']?.toString();
       if (uid != null && aggregatedStats.containsKey(uid)) {
-        aggregatedStats[uid]!['total_steps'] += (row['steps'] as num?)?.toInt() ?? 0;
-        aggregatedStats[uid]!['total_miles'] += (row['miles'] as num?)?.toDouble() ?? 0.0;
-        aggregatedStats[uid]!['total_active_calories'] += (row['active_calories'] as num?)?.toInt() ?? 0;
-        aggregatedStats[uid]!['total_exercise_minutes'] += (row['exercise_minutes'] as num?)?.toInt() ?? 0;
+        aggregatedStats[uid]!['total_steps'] +=
+            (row['steps'] as num?)?.toInt() ?? 0;
+        aggregatedStats[uid]!['total_miles'] +=
+            (row['miles'] as num?)?.toDouble() ?? 0.0;
+        aggregatedStats[uid]!['total_active_calories'] +=
+            (row['active_calories'] as num?)?.toInt() ?? 0;
+        aggregatedStats[uid]!['total_exercise_minutes'] +=
+            (row['exercise_minutes'] as num?)?.toInt() ?? 0;
       }
     }
 
@@ -112,7 +129,7 @@ class LeaderboardService {
     for (final uid in userIds) {
       final profile = profiles[uid];
       final stats = aggregatedStats[uid]!;
-      
+
       results.add({
         'user_id': uid,
         'email': profile?['email'],
@@ -126,14 +143,20 @@ class LeaderboardService {
     }
 
     // 7. Sort by steps descending
-    results.sort((a, b) => (b['total_steps'] as int).compareTo(a['total_steps'] as int));
+    results.sort(
+      (a, b) => (b['total_steps'] as int).compareTo(a['total_steps'] as int),
+    );
 
     if (kDebugMode) {
       // ignore: avoid_print
-      print('[Leaderboard] READ — final mapped leaderboard rows: ${results.length}');
+      print(
+        '[Leaderboard] READ — final mapped leaderboard rows: ${results.length}',
+      );
       for (final row in results) {
         // ignore: avoid_print
-        print('[Leaderboard]   row: user_id=${row['user_id']}, display_name=${row['display_name']}, total_steps=${row['total_steps']}, total_miles=${row['total_miles']}, total_active_calories=${row['total_active_calories']}, total_exercise_minutes=${row['total_exercise_minutes']}');
+        print(
+          '[Leaderboard]   row: user_id=${row['user_id']}, display_name=${row['display_name']}, total_steps=${row['total_steps']}, total_miles=${row['total_miles']}, total_active_calories=${row['total_active_calories']}, total_exercise_minutes=${row['total_exercise_minutes']}',
+        );
       }
     }
 

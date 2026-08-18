@@ -23,6 +23,16 @@ class HealthService {
     return DateTime(now.year, now.month, now.day);
   }
 
+  static DateTime _startOfDay(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  static DateTime _endOfDay(DateTime date) {
+    final start = _startOfDay(date);
+    final tomorrow = start.add(const Duration(days: 1));
+    final now = DateTime.now();
+    return tomorrow.isAfter(now) ? now : tomorrow;
+  }
+
   static Future<bool> _ensureConfiguredAndAuthorized() async {
     try {
       if (!_configured) {
@@ -45,9 +55,12 @@ class HealthService {
       final startOfWeek = startOfDay.subtract(Duration(days: now.weekday - 1));
       final startOfMonth = DateTime(now.year, now.month, 1);
 
-      final todaySteps = await _health.getTotalStepsInInterval(startOfDay, now) ?? 0;
-      final weekSteps = await _health.getTotalStepsInInterval(startOfWeek, now) ?? 0;
-      final monthSteps = await _health.getTotalStepsInInterval(startOfMonth, now) ?? 0;
+      final todaySteps =
+          await _health.getTotalStepsInInterval(startOfDay, now) ?? 0;
+      final weekSteps =
+          await _health.getTotalStepsInInterval(startOfWeek, now) ?? 0;
+      final monthSteps =
+          await _health.getTotalStepsInInterval(startOfMonth, now) ?? 0;
 
       return UserStepData(
         todaySteps: todaySteps,
@@ -128,7 +141,9 @@ class HealthService {
       // Debug: meters per source
       // ignore: avoid_print
       for (final e in metersPerSource.entries) {
-        print('[getTodayDistanceMiles] meters per source: ${e.key}: ${e.value} m');
+        print(
+          '[getTodayDistanceMiles] meters per source: ${e.key}: ${e.value} m',
+        );
       }
       // Debug: chosen source and miles
       // ignore: avoid_print
@@ -202,22 +217,54 @@ class HealthService {
   }
 
   static Future<TodayMetrics> getTodayMetrics() async {
+    return getMetricsForDay(DateTime.now());
+  }
+
+  static Future<TodayMetrics> getMetricsForDay(DateTime date) async {
     try {
       if (!await _ensureConfiguredAndAuthorized()) return TodayMetrics.zero;
 
-      final now = DateTime.now();
-      final startOfDay = _startOfLocalDay();
-
-      final steps = await _health.getTotalStepsInInterval(startOfDay, now) ?? 0;
-      final miles = await getTodayDistanceMiles();
-      final cal = await getTodayActiveEnergyCalories();
-      final min = await getTodayExerciseMinutes();
+      final startOfDay = _startOfDay(date);
+      final endOfDay = _endOfDay(date);
+      if (!endOfDay.isAfter(startOfDay)) return TodayMetrics.zero;
+      final steps =
+          await _health.getTotalStepsInInterval(startOfDay, endOfDay) ?? 0;
+      final points = await _health.getHealthDataFromTypes(
+        types: const [
+          HealthDataType.DISTANCE_WALKING_RUNNING,
+          HealthDataType.ACTIVE_ENERGY_BURNED,
+          HealthDataType.EXERCISE_TIME,
+        ],
+        startTime: startOfDay,
+        endTime: endOfDay,
+      );
+      double meters = 0;
+      double calories = 0;
+      double minutes = 0;
+      for (final point in _health.removeDuplicates(points)) {
+        final raw = point.value;
+        final value = raw is NumericHealthValue
+            ? raw.numericValue.toDouble()
+            : double.tryParse(raw.toString()) ?? 0;
+        switch (point.type) {
+          case HealthDataType.DISTANCE_WALKING_RUNNING:
+            meters += point.unit == HealthDataUnit.MILE
+                ? value * 1609.344
+                : value;
+          case HealthDataType.ACTIVE_ENERGY_BURNED:
+            calories += value;
+          case HealthDataType.EXERCISE_TIME:
+            minutes += value;
+          default:
+            break;
+        }
+      }
 
       return TodayMetrics(
         steps: steps,
-        distanceMiles: miles,
-        activeEnergyCalories: cal,
-        exerciseMinutes: min,
+        distanceMiles: meters / 1609.344,
+        activeEnergyCalories: calories,
+        exerciseMinutes: minutes,
       );
     } catch (_) {
       return TodayMetrics.zero;
@@ -255,7 +302,8 @@ class HealthService {
           out.add(0);
           continue;
         }
-        final steps = await _health.getTotalStepsInInterval(dayStart, dayEnd) ?? 0;
+        final steps =
+            await _health.getTotalStepsInInterval(dayStart, dayEnd) ?? 0;
         out.add(steps);
       }
       return out;
@@ -267,14 +315,19 @@ class HealthService {
   /// Returns today's stand hours (count of hours with at least one stand) if available from HealthKit.
   /// Returns null if not available, not authorized, or on platforms that don't support it.
   static Future<double?> getTodayStandHours() async {
+    return getStandHoursForDay(DateTime.now());
+  }
+
+  static Future<double?> getStandHoursForDay(DateTime date) async {
     try {
       if (!await _ensureConfiguredAndAuthorized()) return null;
-      final now = DateTime.now();
-      final startOfDay = _startOfLocalDay();
+      final startOfDay = _startOfDay(date);
+      final endOfDay = _endOfDay(date);
+      if (!endOfDay.isAfter(startOfDay)) return null;
       final points = await _health.getHealthDataFromTypes(
         types: [HealthDataType.APPLE_STAND_HOUR],
         startTime: startOfDay,
-        endTime: now,
+        endTime: endOfDay,
       );
       if (points.isEmpty) return null;
       double total = 0;
