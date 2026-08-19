@@ -49,7 +49,7 @@ In [Supabase Dashboard → Project Settings → Edge Functions → Secrets](http
 | `APNS_TEAM_ID` | Your Apple Team ID |
 | `APNS_BUNDLE_ID` | `com.brogrammers.gotmotionapp` |
 | `APNS_PRIVATE_KEY` | Full contents of the `.p8` file (including `BEGIN/END` lines). If the UI won’t take newlines, paste with `\n` for line breaks. |
-| `APNS_PRODUCTION` | `false` while testing on your personal device build; `true` for TestFlight / App Store |
+| `APNS_PRODUCTION` | `true` for TestFlight / App Store; `false` only for local `flutter run` debug builds |
 | `CRON_SECRET` | Any long random string (e.g. `openssl rand -hex 32`) |
 
 CLI example:

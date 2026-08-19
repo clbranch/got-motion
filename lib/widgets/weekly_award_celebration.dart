@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/weekly_group_award.dart';
 import '../services/weekly_award_copy.dart';
+import '../services/weekly_group_awards_service.dart';
 
 class WeeklyAwardCelebrationService {
   WeeklyAwardCelebrationService._();
@@ -22,6 +23,8 @@ class WeeklyAwardCelebrationService {
     required String groupName,
     required WeeklyGroupAwards awards,
   }) async {
+    if (!WeeklyGroupAwardsService.shouldShowWeeklyAwards()) return;
+
     final mine = awards.winsForUser(userId);
     if (mine.isEmpty) return;
 

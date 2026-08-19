@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/weekly_group_award.dart';
 import '../services/weekly_award_copy.dart';
 
-/// Live weekly leaders for the selected group (Mon–Sun).
+/// Finalized weekly leaders — revealed Mondays for the prior Mon–Sun block.
 class WeeklyGroupAwardsCard extends StatelessWidget {
   const WeeklyGroupAwardsCard({
     super.key,
@@ -34,7 +34,7 @@ class WeeklyGroupAwardsCard extends StatelessWidget {
             _header(),
             const SizedBox(height: 8),
             const Text(
-              'No group activity yet this week. Sync your motion and check back.',
+              'No group activity last week. Sync your motion and check back Monday.',
               style: TextStyle(color: Color(0xFF8F99AA), fontSize: 13),
             ),
           ],
@@ -116,7 +116,7 @@ class WeeklyGroupAwardsCard extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const Text(
-        'This week’s leaders',
+        'Last week\'s leaders',
         style: TextStyle(
           color: Colors.white,
           fontSize: 18,

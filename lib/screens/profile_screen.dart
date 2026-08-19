@@ -102,7 +102,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           activeCalories: today.activeEnergyCalories.round(),
           exerciseMinutes: today.exerciseMinutes.round(),
         );
-        await _dailyStepsService.syncMonthToDate(userId);
+        await _dailyStepsService.syncHistoryToDate(userId);
       } catch (error) {
         if (kDebugMode) debugPrint('[Profile] Daily sync failed: $error');
       }

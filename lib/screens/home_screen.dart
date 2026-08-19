@@ -271,7 +271,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         exerciseMinutes: today.exerciseMinutes.round(),
       );
       await syncActivityService.markHealthSynced();
-      Future(() => _dailySteps.syncMonthToDate(user.id));
+      Future(() => _dailySteps.syncHistoryToDate(user.id));
       final leaders = await _fetchLeaders(today);
       if (mounted) {
         setState(() {
@@ -344,7 +344,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           const SizedBox(height: 24),
                           _Title(_isToday ? 'Today' : _weekday(_selectedDay)),
                           const SizedBox(height: 12),
-                          _MetricGrid(metrics: _today, stepGoal: goals.steps),
+                          _MetricGrid(metrics: _today, goals: goals),
                           const SizedBox(height: 12),
                           _ActivityStrip(
                             calories: _today.activeEnergyCalories,
@@ -1151,40 +1151,48 @@ class _Title extends StatelessWidget {
 }
 
 class _MetricGrid extends StatelessWidget {
-  const _MetricGrid({required this.metrics, required this.stepGoal});
+  const _MetricGrid({required this.metrics, required this.goals});
   final TodayMetrics metrics;
-  final int stepGoal;
+  final UserGoals goals;
 
   @override
   Widget build(BuildContext context) {
     final cards = [
       _Metric(
-        Icons.directions_walk_rounded,
-        const Color(0xFF218FFF),
-        'Steps',
-        _number(metrics.steps),
-        'of ${_number(stepGoal)}',
+        kind: _MetricKind.steps,
+        color: const Color(0xFF218FFF),
+        label: 'Steps',
+        displayValue: _number(metrics.steps),
+        unit: 'of ${_number(goals.steps)}',
+        current: metrics.steps.toDouble(),
+        goal: goals.steps.toDouble(),
       ),
       _Metric(
-        Icons.local_fire_department_rounded,
-        const Color(0xFFFF8A1E),
-        'Active Calories',
-        _number(metrics.activeEnergyCalories.round()),
-        'CAL',
+        kind: _MetricKind.calories,
+        color: const Color(0xFFFF8A1E),
+        label: 'Active Calories',
+        displayValue: _number(metrics.activeEnergyCalories.round()),
+        unit: 'CAL',
+        current: metrics.activeEnergyCalories,
+        goal: goals.activeCalories.toDouble(),
       ),
       _Metric(
-        Icons.location_on_rounded,
-        const Color(0xFF16D69A),
-        'Miles',
-        metrics.distanceMiles.toStringAsFixed(1),
-        'MI',
+        kind: _MetricKind.miles,
+        color: const Color(0xFF16D69A),
+        label: 'Miles',
+        displayValue: metrics.distanceMiles.toStringAsFixed(1),
+        unit: 'MI',
+        current: metrics.distanceMiles,
+        goal: goals.miles,
       ),
       _Metric(
-        Icons.timer_outlined,
-        const Color(0xFF9A73FF),
-        'Exercise Minutes',
-        _number(metrics.exerciseMinutes.round()),
-        'MIN',
+        kind: _MetricKind.exercise,
+        color: const Color(0xFF9A73FF),
+        label: 'Exercise Minutes',
+        displayValue: _number(metrics.exerciseMinutes.round()),
+        unit: 'MIN',
+        current: metrics.exerciseMinutes,
+        goal: goals.exerciseMinutes.toDouble(),
       ),
     ];
     return GridView.builder(
@@ -1197,61 +1205,89 @@ class _MetricGrid extends StatelessWidget {
         childAspectRatio: 1.72,
       ),
       itemCount: cards.length,
-      itemBuilder: (_, index) => _MetricCard(cards[index]),
+      itemBuilder: (_, index) => _MetricCard(metric: cards[index]),
     );
   }
 }
 
+enum _MetricKind { steps, calories, miles, exercise }
+
 class _Metric {
-  const _Metric(this.icon, this.color, this.label, this.value, this.unit);
-  final IconData icon;
+  const _Metric({
+    required this.kind,
+    required this.color,
+    required this.label,
+    required this.displayValue,
+    required this.unit,
+    required this.current,
+    required this.goal,
+  });
+
+  final _MetricKind kind;
   final Color color;
   final String label;
-  final String value;
+  final String displayValue;
   final String unit;
+  final double current;
+  final double goal;
+
+  double get progress => goal <= 0 ? 0 : (current / goal).clamp(0, 1);
+
+  bool get isComplete => goal > 0 && current >= goal;
+
+  String get remainingLabel {
+    if (isComplete) return 'Daily goal closed';
+    final left = goal - current;
+    return switch (kind) {
+      _MetricKind.steps => '${_number(left.round())} steps to go',
+      _MetricKind.calories => '${_number(left.round())} cal to go',
+      _MetricKind.miles =>
+        '${left.toStringAsFixed(left >= 10 ? 0 : 1)} mi to go',
+      _MetricKind.exercise => '${_number(left.round())} min to go',
+    };
+  }
+
+  String get insightLine {
+    if (isComplete) {
+      return switch (kind) {
+        _MetricKind.steps => 'Ring closed. You hit your step goal today.',
+        _MetricKind.calories => 'Ring closed. Calorie goal handled.',
+        _MetricKind.miles => 'Ring closed. Distance goal handled.',
+        _MetricKind.exercise => 'Ring closed. Exercise goal handled.',
+      };
+    }
+    final pct = (progress * 100).round();
+    if (pct == 0) {
+      return 'Start stacking motion — every bit counts.';
+    }
+    if (pct >= 75) {
+      return 'Almost there. Finish strong and close the ring.';
+    }
+    if (pct >= 40) {
+      return 'You\'re building momentum. Keep it moving.';
+    }
+    return 'Plenty of day left to close this ring.';
+  }
+
+  IconData? get icon => switch (kind) {
+    _MetricKind.steps => null,
+    _MetricKind.calories => Icons.local_fire_department_rounded,
+    _MetricKind.miles => Icons.location_on_rounded,
+    _MetricKind.exercise => Icons.timer_outlined,
+  };
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard(this.data);
-  final _Metric data;
+  const _MetricCard({required this.metric});
+  final _Metric metric;
+
   @override
   Widget build(BuildContext context) => InkWell(
     onTap: () => showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF11151B),
       showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 30),
-          child: Row(
-            children: [
-              Icon(data.icon, color: data.color, size: 30),
-              const SizedBox(width: 16),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    data.label,
-                    style: const TextStyle(
-                      color: Color(0xFF9AA4B5),
-                      fontSize: 14,
-                    ),
-                  ),
-                  Text(
-                    '${data.value} ${data.unit}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (_) => _MetricDetailSheet(metric: metric),
     ),
     borderRadius: BorderRadius.circular(8),
     child: Container(
@@ -1263,12 +1299,14 @@ class _MetricCard extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: data.color.withValues(alpha: .16),
+              color: metric.color.withValues(alpha: .16),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: data.label == 'Steps'
-                ? Center(child: FootstepsIcon(size: 25, color: data.color))
-                : Icon(data.icon, color: data.color, size: 23),
+            child: metric.kind == _MetricKind.steps
+                ? Center(
+                    child: FootstepsIcon(size: 25, color: metric.color),
+                  )
+                : Icon(metric.icon, color: metric.color, size: 23),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1277,7 +1315,7 @@ class _MetricCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  data.label,
+                  metric.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1286,7 +1324,7 @@ class _MetricCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  data.value,
+                  metric.displayValue,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -1294,7 +1332,7 @@ class _MetricCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  data.unit,
+                  metric.unit,
                   style: const TextStyle(
                     color: Color(0xFF7F899A),
                     fontSize: 10,
@@ -1312,6 +1350,127 @@ class _MetricCard extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _MetricDetailSheet extends StatelessWidget {
+  const _MetricDetailSheet({required this.metric});
+
+  final _Metric metric;
+
+  @override
+  Widget build(BuildContext context) {
+    final goalLabel = switch (metric.kind) {
+      _MetricKind.steps => _number(metric.goal.round()),
+      _MetricKind.calories => '${_number(metric.goal.round())} cal',
+      _MetricKind.miles =>
+        metric.goal == metric.goal.roundToDouble()
+            ? '${metric.goal.round()} mi'
+            : '${metric.goal.toStringAsFixed(1)} mi',
+      _MetricKind.exercise => '${_number(metric.goal.round())} min',
+    };
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: metric.color.withValues(alpha: .16),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: metric.kind == _MetricKind.steps
+                      ? Center(
+                          child: FootstepsIcon(size: 28, color: metric.color),
+                        )
+                      : Icon(metric.icon, color: metric.color, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        metric.label,
+                        style: const TextStyle(
+                          color: Color(0xFF9AA4B5),
+                          fontSize: 14,
+                        ),
+                      ),
+                      Text(
+                        metric.displayValue,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '${(metric.progress * 100).round()}%',
+                  style: TextStyle(
+                    color: metric.color,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: metric.progress,
+                minHeight: 10,
+                backgroundColor: metric.color.withValues(alpha: .18),
+                color: metric.color,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  metric.isComplete ? 'Goal complete' : metric.remainingLabel,
+                  style: TextStyle(
+                    color: metric.isComplete
+                        ? const Color(0xFF16D6A0)
+                        : Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  'Goal: $goalLabel',
+                  style: const TextStyle(
+                    color: Color(0xFF8F99AA),
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              metric.insightLine,
+              style: const TextStyle(
+                color: Color(0xFF9AA4B5),
+                fontSize: 14,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ActivityStrip extends StatelessWidget {

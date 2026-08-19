@@ -22,7 +22,7 @@ class WeeklyAwardCopy {
   }
 
   static String celebrationSubhead(String groupName) =>
-      'This week in $groupName';
+      'Last week in $groupName';
 
   static String celebrationBody({
     required List<WeeklyAwardWinner> wins,
@@ -37,12 +37,12 @@ class WeeklyAwardCopy {
 
   static String cardBannerForUser(List<WeeklyAwardWinner> wins) {
     if (sweptAllCategories(wins)) {
-      return 'The LeBron of Motion this week';
+      return 'The LeBron of Motion last week';
     }
     if (wins.length == 1) {
       return wins.first.category.shortBadgeYou;
     }
-    return '${wins.length} weekly awards — keep pushing';
+    return '${wins.length} weekly awards last week';
   }
 
   static String tileLine({
@@ -105,45 +105,46 @@ extension WeeklyAwardCopyCategory on WeeklyAwardCategory {
   String pushBodyYou({required String groupName, required num value}) =>
       switch (this) {
         WeeklyAwardCategory.steps =>
-          'You led $groupName in steps — ${formatValue(value)}. '
+          'You led $groupName in steps last week — ${formatValue(value)}. '
           'Nobody else came close.',
         WeeklyAwardCategory.calories =>
-          'Most active calories in $groupName — ${formatValue(value)}. '
+          'Most active calories in $groupName last week — ${formatValue(value)}. '
           'You burned it up.',
         WeeklyAwardCategory.exercise =>
-          'Most exercise minutes in $groupName — ${formatValue(value)}. '
+          'Most exercise minutes in $groupName last week — ${formatValue(value)}. '
           'You really moved that weight.',
         WeeklyAwardCategory.miles =>
-          'Most miles in $groupName — ${formatValue(value)}. '
+          'Most miles in $groupName last week — ${formatValue(value)}. '
           'You ran circles around everyone.',
       };
 
   String get shortBadgeYou => switch (this) {
-    WeeklyAwardCategory.steps => 'You\'re the big stepper this week',
-    WeeklyAwardCategory.calories => 'You\'re burning it off faster than anyone',
-    WeeklyAwardCategory.exercise => 'You\'re really moving that weight',
-    WeeklyAwardCategory.miles => 'You\'re running circles around the group',
+    WeeklyAwardCategory.steps => 'You were the big stepper last week',
+    WeeklyAwardCategory.calories =>
+      'You burned it off faster than anyone last week',
+    WeeklyAwardCategory.exercise => 'You really moved that weight last week',
+    WeeklyAwardCategory.miles => 'You ran circles around the group last week',
   };
 
   String highlightYou(num value) => switch (this) {
     WeeklyAwardCategory.steps =>
-      'Hey — you were the big stepper this week with ${formatValue(value)}. Keep it up.',
+      'Hey — you were the big stepper last week with ${formatValue(value)}.',
     WeeklyAwardCategory.calories =>
-      'Man, you\'re burning it all there — ${formatValue(value)} and nobody\'s close.',
+      'You burned it all last week — ${formatValue(value)} and nobody was close.',
     WeeklyAwardCategory.exercise =>
-      'Hey, you really moving that weight — ${formatValue(value)} of work this week.',
+      'You really moved that weight last week — ${formatValue(value)} of work.',
     WeeklyAwardCategory.miles =>
-      'You ran miles around these folks — ${formatValue(value)} this week. Great job.',
+      'You ran miles around the group last week — ${formatValue(value)}.',
   };
 
   String highlightThem(String name, num value) => switch (this) {
     WeeklyAwardCategory.steps =>
-      '$name was the big stepper this week — ${formatValue(value)}.',
+      '$name was the big stepper last week — ${formatValue(value)}.',
     WeeklyAwardCategory.calories =>
-      '$name is burning it off faster than anyone — ${formatValue(value)}.',
+      '$name burned it off faster than anyone last week — ${formatValue(value)}.',
     WeeklyAwardCategory.exercise =>
-      '$name is really moving that weight — ${formatValue(value)}.',
+      '$name really moved that weight last week — ${formatValue(value)}.',
     WeeklyAwardCategory.miles =>
-      '$name ran miles around the group — ${formatValue(value)}.',
+      '$name ran miles around the group last week — ${formatValue(value)}.',
   };
 }

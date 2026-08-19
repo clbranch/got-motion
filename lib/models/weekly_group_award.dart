@@ -1,4 +1,4 @@
-/// Weekly group award categories (Mon–Sun, live leaders).
+/// Weekly group award categories (Mon–Sun, finalized on Monday).
 enum WeeklyAwardCategory {
   steps,
   calories,

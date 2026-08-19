@@ -21,6 +21,8 @@ class LeaderboardService {
     String groupId, {
     String range = 'Today',
     DateTime? date,
+    DateTime? rangeStart,
+    DateTime? rangeEnd,
   }) async {
     if (kDebugMode) {
       // ignore: avoid_print
@@ -59,19 +61,30 @@ class LeaderboardService {
     // 3. Determine date filter
     DateTime now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    DateTime startDate;
-    final normalized = _normalizeRange(range);
-    if (normalized == 'Today') {
-      startDate = today;
-    } else if (normalized == 'This Week') {
-      startDate = today.subtract(Duration(days: now.weekday - 1));
-    } else if (normalized == 'This Month') {
-      startDate = DateTime(now.year, now.month, 1);
+    late DateTime startDate;
+    late DateTime endDate;
+    if (rangeStart != null && rangeEnd != null) {
+      startDate = DateTime(
+        rangeStart.year,
+        rangeStart.month,
+        rangeStart.day,
+      );
+      endDate = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day);
     } else {
-      startDate = today;
+      final normalized = _normalizeRange(range);
+      if (normalized == 'Today') {
+        startDate = today;
+      } else if (normalized == 'This Week') {
+        startDate = today.subtract(Duration(days: now.weekday - 1));
+      } else if (normalized == 'This Month') {
+        startDate = DateTime(now.year, now.month, 1);
+      } else {
+        startDate = today;
+      }
+      endDate = today;
     }
     final startDateStr = startDate.toIso8601String().split('T').first;
-    final todayStr = today.toIso8601String().split('T').first;
+    final endDateStr = endDate.toIso8601String().split('T').first;
 
     // 4. Fetch daily_steps for these users within the date range
     var stepsQuery = _supabase
@@ -79,7 +92,7 @@ class LeaderboardService {
         .select()
         .inFilter('user_id', userIds);
     final stepsResponse = date == null
-        ? await stepsQuery.gte('date', startDateStr).lte('date', todayStr)
+        ? await stepsQuery.gte('date', startDateStr).lte('date', endDateStr)
         : await stepsQuery.eq('date', date.toIso8601String().split('T').first);
 
     final stepsData = List<Map<String, dynamic>>.from(stepsResponse);

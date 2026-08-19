@@ -85,7 +85,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     Future(() async {
       try {
         if (!mounted) return;
-        await _dailyStepsService.syncMonthToDate(userId);
+        await _dailyStepsService.syncHistoryToDate(userId);
         if (mounted) await _loadFromSupabase(skipSyncAfterReload: true);
       } catch (e, stack) {
         if (kDebugMode) {

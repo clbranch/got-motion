@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/today_metrics.dart';
@@ -6,6 +7,15 @@ import 'health_service.dart';
 
 class DailyStepsService {
   final SupabaseClient _supabase = Supabase.instance.client;
+
+  /// How far back we pull from HealthKit into Supabase (daily rows kept forever).
+  static const historyLookbackDays = 730;
+
+  /// Re-sync recent days — HealthKit totals can shift slightly after workouts sync.
+  static const historyResyncDays = 7;
+
+  static String _syncedThroughKey(String userId) =>
+      'daily_steps_synced_through_$userId';
 
   /// Set from main.dart after Supabase.initialize so debug logs can show which project is used.
   static String? debugSupabaseUrl;
@@ -99,18 +109,51 @@ class DailyStepsService {
 
   static bool _historySyncing = false;
 
-  /// Backfills this month's daily_steps from HealthKit so Week/Month leaderboards can sum.
-  Future<void> syncMonthToDate(String userId) async {
+  /// Backfills daily_steps from HealthKit so Week/Month views and future history
+  /// screens can sum real data. First run pulls up to [historyLookbackDays];
+  /// later runs refresh the last week and fill any new days.
+  Future<void> syncHistoryToDate(String userId) async {
     if (_historySyncing) return;
     _historySyncing = true;
     try {
-      final days = await HealthService.getDailyMetrics(
-        HealthService.startOfMonth(),
-        DateTime.now(),
+      final today = DateTime.now();
+      final todayDate = DateTime(today.year, today.month, today.day);
+      final earliest = todayDate.subtract(
+        const Duration(days: historyLookbackDays),
       );
+
+      final prefs = await SharedPreferences.getInstance();
+      final syncedThroughRaw = prefs.getString(_syncedThroughKey(userId));
+      final syncedThrough = syncedThroughRaw == null
+          ? null
+          : DateTime.tryParse(syncedThroughRaw);
+
+      final DateTime start;
+      if (syncedThrough == null) {
+        start = earliest;
+        if (kDebugMode) {
+          // ignore: avoid_print
+          print(
+            '[DailySteps] syncHistory — initial backfill from '
+            '${start.toIso8601String().split('T').first}',
+          );
+        }
+      } else {
+        final rewind = syncedThrough.subtract(
+          const Duration(days: historyResyncDays),
+        );
+        start = rewind.isBefore(earliest) ? earliest : rewind;
+      }
+
+      final days = await HealthService.getDailyMetrics(start, today);
       await upsertDays(userId: userId, days: days);
+      await prefs.setString(
+        _syncedThroughKey(userId),
+        todayDate.toIso8601String().split('T').first,
+      );
     } finally {
       _historySyncing = false;
     }
   }
+
 }

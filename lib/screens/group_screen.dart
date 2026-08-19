@@ -93,6 +93,7 @@ class _GroupScreenState extends State<GroupScreen> {
 
   void _maybeCelebrateWeeklyAwards(String groupId, WeeklyGroupAwards? awards) {
     if (awards == null || awards.winners.isEmpty) return;
+    if (!WeeklyGroupAwardsService.shouldShowWeeklyAwards()) return;
     final userId = Supabase.instance.client.auth.currentUser?.id;
     final groupName = selectedGroupService.selectedGroupName;
     if (userId == null || groupName == null) return;

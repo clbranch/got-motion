@@ -14,15 +14,28 @@ class WeeklyGroupAwardsService {
     return today.subtract(Duration(days: local.weekday - 1));
   }
 
-  static String weekKey([DateTime? now]) {
-    final monday = startOfWeek(now);
-    return '${monday.year}-${monday.month}-${monday.day}';
+  /// Weekly awards only drop on Monday for the Mon–Sun block that just ended.
+  static bool shouldShowWeeklyAwards([DateTime? now]) =>
+      displayWeekMonday(now) != null;
+
+  /// Monday of the completed week to display, or null while a week is in progress.
+  static DateTime? displayWeekMonday([DateTime? now]) {
+    final local = now ?? DateTime.now();
+    if (local.weekday != DateTime.monday) return null;
+    return startOfWeek(local).subtract(const Duration(days: 7));
   }
 
-  static String weekLabel([DateTime? now]) {
-    final local = now ?? DateTime.now();
-    final monday = startOfWeek(local);
-    final sunday = monday.add(const Duration(days: 6));
+  static String weekKeyFor(DateTime weekMonday) =>
+      '${weekMonday.year}-${weekMonday.month}-${weekMonday.day}';
+
+  static String weekKey([DateTime? now]) {
+    final monday = displayWeekMonday(now);
+    if (monday == null) return weekKeyFor(startOfWeek(now));
+    return weekKeyFor(monday);
+  }
+
+  static String weekLabelFor(DateTime weekMonday) {
+    final sunday = weekMonday.add(const Duration(days: 6));
     const months = [
       'Jan',
       'Feb',
@@ -37,15 +50,26 @@ class WeeklyGroupAwardsService {
       'Nov',
       'Dec',
     ];
-    final start = '${months[monday.month - 1]} ${monday.day}';
+    final start = '${months[weekMonday.month - 1]} ${weekMonday.day}';
     final end = '${months[sunday.month - 1]} ${sunday.day}';
     return '$start – $end';
   }
 
-  Future<WeeklyGroupAwards?> loadForGroup(String groupId) async {
+  static String weekLabel([DateTime? now]) {
+    final monday = displayWeekMonday(now);
+    if (monday == null) return '';
+    return weekLabelFor(monday);
+  }
+
+  Future<WeeklyGroupAwards?> loadForGroup(String groupId, [DateTime? now]) async {
+    final displayMonday = displayWeekMonday(now);
+    if (displayMonday == null) return null;
+
+    final weekEnd = displayMonday.add(const Duration(days: 6));
     final rows = await _leaderboard.fetchGroupLeaderboard(
       groupId,
-      range: 'This Week',
+      rangeStart: displayMonday,
+      rangeEnd: weekEnd,
     );
     if (rows.isEmpty) return null;
 
@@ -100,8 +124,8 @@ class WeeklyGroupAwardsService {
     );
 
     return WeeklyGroupAwards(
-      weekKey: weekKey(),
-      weekLabel: weekLabel(),
+      weekKey: weekKeyFor(displayMonday),
+      weekLabel: weekLabelFor(displayMonday),
       winners: winners,
     );
   }
