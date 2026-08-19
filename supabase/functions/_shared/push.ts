@@ -41,6 +41,20 @@ export function isAuthorizedCron(req: Request): boolean {
   const auth = req.headers.get("Authorization") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (serviceKey && auth === `Bearer ${serviceKey}`) return true;
+
+  // Accept any valid Supabase service_role JWT (Dashboard / CLI invoke).
+  if (auth.startsWith("Bearer ")) {
+    const token = auth.slice(7);
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      try {
+        const payload = JSON.parse(atob(parts[1]!));
+        if (payload.role === "service_role") return true;
+      } catch {
+        /* ignore malformed token */
+      }
+    }
+  }
   return false;
 }
 

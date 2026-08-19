@@ -12,6 +12,9 @@
 
 import {
   catchUpLines,
+  groupRankBody,
+  groupRankTier,
+  groupRankTitle,
   morningLines,
   pick,
   someoneMovingLine,
@@ -39,6 +42,9 @@ Deno.serve(async (req) => {
       name?: string;
       steps?: number;
       group_name?: string;
+      rank?: number;
+      member_count?: number;
+      leader_steps?: number;
     };
 
     const cron = isAuthorizedCron(req);
@@ -81,6 +87,23 @@ Deno.serve(async (req) => {
         groupName: body.group_name ?? "your group",
       });
       type = "leader_update";
+    } else if (kind === "group_rank") {
+      const groupName = body.group_name ?? "your group";
+      const rank = body.rank ?? 2;
+      const memberCount = body.member_count ?? 4;
+      const yourSteps = body.steps ?? 500;
+      const leaderSteps = body.leader_steps ?? 1200;
+      const tier = groupRankTier(rank, memberCount);
+      title = groupRankTitle(groupName);
+      text = groupRankBody({
+        tier,
+        groupName,
+        rank,
+        memberCount,
+        yourSteps,
+        leaderSteps,
+      });
+      type = "group_activity";
     } else if (kind === "custom") {
       if (!text) return json({ error: "custom kind needs body" }, 400);
       type = "group_activity";

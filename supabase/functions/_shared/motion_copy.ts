@@ -155,3 +155,62 @@ export function someoneMovingLine(opts: {
   ];
   return pick(options, opts.seed);
 }
+
+export type GroupRankTier = "first" | "second" | "last" | "middle";
+
+export function groupRankTier(rank: number, memberCount: number): GroupRankTier {
+  if (rank <= 1) return "first";
+  if (rank >= memberCount) return "last";
+  if (rank === 2) return "second";
+  return "middle";
+}
+
+export function groupRankTitle(groupName: string): string {
+  const trimmed = groupName.trim();
+  return trimmed.length > 0 ? trimmed : "Group motion";
+}
+
+export function groupRankBody(opts: {
+  tier: GroupRankTier;
+  groupName: string;
+  rank: number;
+  memberCount: number;
+  yourSteps: number;
+  leaderSteps: number;
+  seed?: number;
+}): string {
+  const group = opts.groupName.trim() || "your group";
+  const gap = Math.max(0, opts.leaderSteps - opts.yourSteps);
+  const gapLabel = gap > 0 ? formatSteps(gap) : null;
+
+  const lines: Record<GroupRankTier, string[]> = {
+    first: [
+      `Hey — keep up the good work. You're killing it in ${group} today.`,
+      `You're setting the pace in ${group}. Keep that motion going.`,
+      `Leading ${group} today — stay on it. You're killing it.`,
+    ],
+    second: [
+      ...(gapLabel
+        ? [
+          `Hey — you're almost there. ${gapLabel} steps from the lead in ${group}. Get moving.`,
+        ]
+        : []),
+      `Hey — you're right there. Push a little harder and take ${group}.`,
+      `Second in ${group} today. You're almost there — get moving.`,
+    ],
+    last: [
+      `Hey — what you doing? Looks like a day off in ${group}. Tighten up and get going.`,
+      `Come on — ${group} is moving without you. Let's get going.`,
+      `Last on the board in ${group} today. Shake it off and get in motion.`,
+    ],
+    middle: [
+      `Still room to climb in ${group} — keep pushing.`,
+      `#${opts.rank} in ${group} today. Pick up the pace.`,
+      `You're in the mix in ${group}. Keep stacking motion.`,
+    ],
+  };
+
+  const pool = lines[opts.tier];
+  const seed = opts.seed ?? opts.rank + opts.memberCount + opts.yourSteps;
+  return pick(pool, seed);
+}

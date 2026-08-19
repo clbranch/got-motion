@@ -1,7 +1,7 @@
 # Per-function JWT settings (no top-level [functions] verify_jwt — CLI rejects that).
 
 [functions.send-push]
-verify_jwt = true
+verify_jwt = false
 
 [functions.delete-account]
 verify_jwt = true

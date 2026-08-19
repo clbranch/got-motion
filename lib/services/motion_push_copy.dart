@@ -1,11 +1,11 @@
-import 'dart:math';
+import 'dart:math' as math;
 
 /// Motion-first push / in-app copy for Got Motion.
 /// Keep alerts about motion — not generic “open the app” noise.
 class MotionPushCopy {
   MotionPushCopy._();
 
-  static final _random = Random();
+  static final _random = math.Random();
 
   // ---------------------------------------------------------------------------
   // Morning / start the day
@@ -110,4 +110,60 @@ class MotionPushCopy {
     }
     return buffer.toString();
   }
+
+  // ---------------------------------------------------------------------------
+  // Group rank nudges — personalized to where you sit today
+  // ---------------------------------------------------------------------------
+
+  static GroupRankTier rankTier({required int rank, required int memberCount}) {
+    if (rank <= 1) return GroupRankTier.first;
+    if (rank >= memberCount) return GroupRankTier.last;
+    if (rank == 2) return GroupRankTier.second;
+    return GroupRankTier.middle;
+  }
+
+  static String groupRankTitle(String groupName) =>
+      groupName.trim().isEmpty ? 'Group motion' : groupName.trim();
+
+  static String groupRankBody({
+    required GroupRankTier tier,
+    required String groupName,
+    required int rank,
+    required int memberCount,
+    required int yourSteps,
+    required int leaderSteps,
+    int? seed,
+  }) {
+    final group = groupName.trim().isEmpty ? 'your group' : groupName.trim();
+    final gap = math.max(0, leaderSteps - yourSteps);
+    final gapLabel = gap > 0 ? _formatSteps(gap) : null;
+
+    final lines = switch (tier) {
+      GroupRankTier.first => [
+        'Hey — keep up the good work. You\'re killing it in $group today.',
+        'You\'re setting the pace in $group. Keep that motion going.',
+        'Leading $group today — stay on it. You\'re killing it.',
+      ],
+      GroupRankTier.second => [
+        if (gapLabel != null)
+          'Hey — you\'re almost there. $gapLabel steps from the lead in $group. Get moving.',
+        'Hey — you\'re right there. Push a little harder and take $group.',
+        'Second in $group today. You\'re almost there — get moving.',
+      ],
+      GroupRankTier.last => [
+        'Hey — what you doing? Looks like a day off in $group. Tighten up and get going.',
+        'Come on — $group is moving without you. Let\'s get going.',
+        'Last on the board in $group today. Shake it off and get in motion.',
+      ],
+      GroupRankTier.middle => [
+        'Still room to climb in $group — keep pushing.',
+        '#$rank in $group today. Pick up the pace.',
+        'You\'re in the mix in $group. Keep stacking motion.',
+      ],
+    };
+
+    return _pick(lines, seed ?? rank + memberCount + yourSteps);
+  }
 }
+
+enum GroupRankTier { first, second, last, middle }

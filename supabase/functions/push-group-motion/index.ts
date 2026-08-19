@@ -1,17 +1,21 @@
 /**
- * Group “someone already moving” nudges.
+ * Group rank nudges — personalized to where each member sits today.
  *
  * Schedule sparsely — at most 1–2 times per day (e.g. late morning + late
  * afternoon). Do NOT run hourly; that gets notifications turned off.
  *
  * Logic:
- * - Find users with daily_steps.steps >= threshold today
- * - Notify other members of their groups (leaderboard-visible facts only)
+ * - Build today's step leaderboard per group
+ * - Notify each member with copy based on rank (1st / 2nd / last / middle)
  * - Respect push_enabled + group_activity preferences
- * - At most one group_activity / leader_update nudge per recipient per day
+ * - At most one group_activity nudge per recipient per day
  */
 
-import { someoneMovingLine } from "../_shared/motion_copy.ts";
+import {
+  groupRankBody,
+  groupRankTier,
+  groupRankTitle,
+} from "../_shared/motion_copy.ts";
 import {
   corsPreflight,
   deliverToUser,
@@ -21,8 +25,6 @@ import {
   todayDateString,
 } from "../_shared/push.ts";
 import { apnsConfigured } from "../_shared/apns.ts";
-
-const STEPS_THRESHOLD = 200;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflight();
@@ -39,50 +41,18 @@ Deno.serve(async (req) => {
   try {
     const supabase = serviceClient();
     const today = todayDateString();
+    const daySeed = Number(today.replaceAll("-", ""));
 
-    const { data: movers, error: moversError } = await supabase
-      .from("daily_steps")
-      .select("user_id, steps")
-      .eq("date", today)
-      .gte("steps", STEPS_THRESHOLD);
-
-    if (moversError) throw moversError;
-    if (!movers || movers.length === 0) {
-      return json({ ok: true, date: today, notified: 0, reason: "no_movers" });
-    }
-
-    const moverIds = movers.map((m) => m.user_id as string);
-    const stepsByUser = new Map(
-      movers.map((m) => [m.user_id as string, m.steps as number]),
-    );
-
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("id, display_name, full_name")
-      .in("id", moverIds);
-
-    const nameByUser = new Map<string, string>();
-    for (const p of profiles ?? []) {
-      const name =
-        (p.display_name as string | null)?.trim() ||
-        (p.full_name as string | null)?.trim() ||
-        "A teammate";
-      nameByUser.set(p.id as string, name);
-    }
-
-    const { data: memberships, error: memError } = await supabase
+    const { data: allMembers, error: allMemError } = await supabase
       .from("group_members")
-      .select("group_id, user_id")
-      .in("user_id", moverIds);
+      .select("group_id, user_id");
 
-    if (memError) throw memError;
-
-    const groupIds = [
-      ...new Set((memberships ?? []).map((m) => m.group_id as string)),
-    ];
-    if (groupIds.length === 0) {
+    if (allMemError) throw allMemError;
+    if (!allMembers || allMembers.length === 0) {
       return json({ ok: true, date: today, notified: 0, reason: "no_groups" });
     }
+
+    const groupIds = [...new Set(allMembers.map((m) => m.group_id as string))];
 
     const { data: groups } = await supabase
       .from("groups")
@@ -92,80 +62,107 @@ Deno.serve(async (req) => {
       (groups ?? []).map((g) => [g.id as string, g.name as string]),
     );
 
-    const { data: allMembers, error: allMemError } = await supabase
-      .from("group_members")
-      .select("group_id, user_id")
-      .in("group_id", groupIds);
-
-    if (allMemError) throw allMemError;
-
-    // Pick one "featured" mover per group (highest steps).
-    const featuredByGroup = new Map<string, { userId: string; steps: number }>();
-    for (const m of memberships ?? []) {
+    const membersByGroup = new Map<string, string[]>();
+    for (const m of allMembers) {
       const gid = m.group_id as string;
       const uid = m.user_id as string;
-      const steps = stepsByUser.get(uid) ?? 0;
-      const current = featuredByGroup.get(gid);
-      if (!current || steps > current.steps) {
-        featuredByGroup.set(gid, { userId: uid, steps });
-      }
+      const list = membersByGroup.get(gid) ?? [];
+      list.push(uid);
+      membersByGroup.set(gid, list);
+    }
+
+    const allUserIds = [...new Set(allMembers.map((m) => m.user_id as string))];
+    const { data: stepRows, error: stepsError } = await supabase
+      .from("daily_steps")
+      .select("user_id, steps")
+      .eq("date", today)
+      .in("user_id", allUserIds);
+
+    if (stepsError) throw stepsError;
+
+    const stepsByUser = new Map<string, number>();
+    for (const row of stepRows ?? []) {
+      stepsByUser.set(row.user_id as string, (row.steps as number) ?? 0);
     }
 
     const notified = new Set<string>();
     let deliveries = 0;
+    let skipped = 0;
 
-    for (const [groupId, featured] of featuredByGroup) {
+    for (const [groupId, memberIds] of membersByGroup) {
+      if (memberIds.length === 0) continue;
+
       const groupName = groupNameById.get(groupId) ?? "your group";
-      const moverName = nameByUser.get(featured.userId) ?? "A teammate";
-      const body = someoneMovingLine({
-        name: moverName,
-        steps: featured.steps,
-        groupName,
-        seed: featured.steps + groupId.length,
-      });
+      const leaderboard = memberIds
+        .map((userId) => ({
+          userId,
+          steps: stepsByUser.get(userId) ?? 0,
+        }))
+        .sort((a, b) => b.steps - a.steps);
 
-      const recipients = (allMembers ?? [])
-        .filter((m) => m.group_id === groupId && m.user_id !== featured.userId)
-        .map((m) => m.user_id as string);
+      const leaderSteps = leaderboard[0]?.steps ?? 0;
+      const memberCount = leaderboard.length;
 
-      for (const recipientId of recipients) {
-        if (notified.has(recipientId)) continue;
+      for (let i = 0; i < leaderboard.length; i++) {
+        const { userId, steps } = leaderboard[i]!;
+        const rank = i + 1;
+
+        if (notified.has(userId)) continue;
 
         const { data: pref } = await supabase
           .from("notification_preferences")
           .select("push_enabled, group_activity")
-          .eq("user_id", recipientId)
+          .eq("user_id", userId)
           .maybeSingle();
 
-        if (!pref?.push_enabled || pref.group_activity === false) continue;
+        if (pref && (!pref.push_enabled || pref.group_activity === false)) {
+          skipped += 1;
+          continue;
+        }
 
         const { data: already } = await supabase
           .from("notifications")
           .select("id")
-          .eq("user_id", recipientId)
-          .in("type", ["leader_update", "group_activity"])
+          .eq("user_id", userId)
+          .eq("type", "group_activity")
           .gte("created_at", `${today}T00:00:00-04:00`)
           .limit(1);
 
-        if (already && already.length > 0) continue;
+        if (already && already.length > 0) {
+          skipped += 1;
+          continue;
+        }
+
+        const tier = groupRankTier(rank, memberCount);
+        const body = groupRankBody({
+          tier,
+          groupName,
+          rank,
+          memberCount,
+          yourSteps: steps,
+          leaderSteps,
+          seed: daySeed + userId.charCodeAt(0) + rank * 13,
+        });
 
         const result = await deliverToUser(supabase, {
-          userId: recipientId,
+          userId,
           groupId,
-          title: "Group motion",
+          title: groupRankTitle(groupName),
           body,
-          type: "leader_update",
+          type: "group_activity",
           data: {
-            kind: "group_moving",
-            mover_user_id: featured.userId,
-            mover_name: moverName,
-            steps: featured.steps,
+            kind: "group_rank",
+            rank,
+            member_count: memberCount,
+            your_steps: steps,
+            leader_steps: leaderSteps,
             group_name: groupName,
+            tier,
             source: "push-group-motion",
           },
         });
 
-        notified.add(recipientId);
+        notified.add(userId);
         deliveries += result.sent;
       }
     }
@@ -173,9 +170,9 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       date: today,
-      movers: movers.length,
-      groups: featuredByGroup.size,
+      groups: membersByGroup.size,
       notified: notified.size,
+      skipped,
       apns_deliveries: deliveries,
     });
   } catch (e) {
