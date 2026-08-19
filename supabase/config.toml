@@ -1,0 +1,16 @@
+# Per-function JWT settings (no top-level [functions] verify_jwt — CLI rejects that).
+
+[functions.send-push]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
+[functions.push-morning]
+verify_jwt = false
+
+[functions.push-evening]
+verify_jwt = false
+
+[functions.push-group-motion]
+verify_jwt = false

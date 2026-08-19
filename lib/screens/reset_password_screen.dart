@@ -38,9 +38,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     _clearError();
     if (!_formKey.currentState!.validate()) return;
     final email = _emailController.text.trim();
-    if (_lastResetEmail == email && _lastResetSentAt != null &&
+    if (_lastResetEmail == email &&
+        _lastResetSentAt != null &&
         DateTime.now().difference(_lastResetSentAt!) < _resetCooldown) {
-      setState(() => _errorMessage = 'Please wait a moment before requesting another reset email.');
+      setState(
+        () => _errorMessage =
+            'Please wait a moment before requesting another reset email.',
+      );
       return;
     }
     setState(() => _loading = true);
@@ -68,14 +72,19 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     // ignore: avoid_print
-    print('[Auth] ForgotPasswordScreen (request/success) visible - manual flow only');
+    print(
+      '[Auth] ForgotPasswordScreen (request/success) visible - manual flow only',
+    );
     return Scaffold(
       backgroundColor: _background,
       appBar: AppBar(
         backgroundColor: _background,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: Colors.white.withValues(alpha: 0.9)),
+          icon: Icon(
+            Icons.arrow_back_rounded,
+            color: Colors.white.withValues(alpha: 0.9),
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -87,9 +96,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           ),
         ),
       ),
-      body: SafeArea(
-        child: _success ? _buildSuccessView() : _buildFormView(),
-      ),
+      body: SafeArea(child: _success ? _buildSuccessView() : _buildFormView()),
     );
   }
 
@@ -166,7 +173,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     decoration: _inputDecoration('Email'),
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return 'Enter your email';
+                      if (v == null || v.trim().isEmpty)
+                        return 'Enter your email';
                       if (!v.contains('@')) return 'Enter a valid email';
                       return null;
                     },

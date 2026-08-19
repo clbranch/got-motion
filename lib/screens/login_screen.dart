@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../services/auth_service.dart';
+import '../widgets/motion_logo.dart';
 
 /// Login only. "Create account" navigates to [CreateAccountScreen].
 class LoginScreen extends StatefulWidget {
@@ -56,7 +57,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _openForgotPassword() {
     // ignore: avoid_print
-    print('[Auth] Login: user tapped "Forgot password?" -> ForgotPasswordScreen (request/success only, not recovery callback)');
+    print(
+      '[Auth] Login: user tapped "Forgot password?" -> ForgotPasswordScreen (request/success only, not recovery callback)',
+    );
     Navigator.of(context).pushNamed('/reset-password');
   }
 
@@ -84,6 +87,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 24),
+                  const Center(child: MotionLogoBadge(size: 88)),
+                  const SizedBox(height: 18),
                   Text(
                     'Motion',
                     textAlign: TextAlign.center,
@@ -129,10 +134,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         Row(
                           children: [
                             Expanded(
-                              child: Divider(height: 1, color: Colors.white.withValues(alpha: 0.14)),
+                              child: Divider(
+                                height: 1,
+                                color: Colors.white.withValues(alpha: 0.14),
+                              ),
                             ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
                               child: Text(
                                 'or use email',
                                 style: TextStyle(
@@ -142,7 +152,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             Expanded(
-                              child: Divider(height: 1, color: Colors.white.withValues(alpha: 0.14)),
+                              child: Divider(
+                                height: 1,
+                                color: Colors.white.withValues(alpha: 0.14),
+                              ),
                             ),
                           ],
                         ),
@@ -156,7 +169,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: TextButton(
                             onPressed: _loading ? null : _openForgotPassword,
                             style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 0),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 0,
+                              ),
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
@@ -183,8 +198,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         FilledButton(
                           onPressed: _loading ? null : _signIn,
                           style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white.withValues(alpha: 0.08),
-                            foregroundColor: Colors.white.withValues(alpha: 0.9),
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.08,
+                            ),
+                            foregroundColor: Colors.white.withValues(
+                              alpha: 0.9,
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),

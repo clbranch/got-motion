@@ -1,7 +1,10 @@
-import 'package:flutter/material.dart';
-import '../models/motion_stats.dart';
+import 'dart:math' as math;
 
-/// V1 player profile screen: avatar, name, hero step count, stats rows.
+import 'package:flutter/material.dart';
+
+import '../models/motion_stats.dart';
+import '../widgets/footsteps_icon.dart';
+
 class PlayerDetailScreen extends StatelessWidget {
   const PlayerDetailScreen({
     super.key,
@@ -13,209 +16,405 @@ class PlayerDetailScreen extends StatelessWidget {
   final MotionStats stats;
   final int rank;
   final String selectedRange;
-
-  static const Color _background = Color(0xFF0B0B0F);
-  static const Color _accent = Color(0xFF3B82F6);
-  static const double _pagePadding = 16.0;
-
-  static String _formatSteps(int n) {
-    final s = n.toString();
-    if (s.length <= 3) return s;
-    final buf = StringBuffer();
-    final firstLen = s.length % 3;
-    if (firstLen > 0) {
-      buf.write(s.substring(0, firstLen));
-      if (firstLen < s.length) buf.write(',');
-    }
-    for (var i = firstLen; i < s.length; i += 3) {
-      buf.write(s.substring(i, i + 3));
-      if (i + 3 < s.length) buf.write(',');
-    }
-    return buf.toString();
-  }
+  static const _background = Color(0xFF07090D);
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _background,
-      appBar: AppBar(
-        backgroundColor: _background,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Text(
-          stats.name,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-          ),
-        ),
-        iconTheme: IconThemeData(color: Colors.white.withValues(alpha: 0.9)),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: _pagePadding, vertical: 24),
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _background,
+    body: SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
         children: [
-          // Profile section
-          Center(
-            child: Column(
-              children: [
-                Container(
-                  width: 88,
-                  height: 88,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  stats.name,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                const SizedBox.shrink(),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          // Hero metric
-          Center(
-            child: Column(
-              children: [
-                Text(
-                  _formatSteps(stats.steps),
-                  style: const TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.w700,
-                    color: _accent,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Steps Today',
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: Colors.white.withValues(alpha: 0.55),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-          // Stats section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Column(
-              children: [
-                _RankRow(
-                  rank: rank,
-                  previousRank: stats.previousRank,
-                  showMovement: selectedRange == 'This Week' || selectedRange == 'This Month',
-                ),
-                _StatRow(label: 'Miles', value: stats.miles.toStringAsFixed(1)),
-                _StatRow(label: 'Calories', value: '${stats.activeCalories}'),
-                _StatRow(label: 'Minutes', value: '${stats.exerciseMinutes}'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RankRow extends StatelessWidget {
-  const _RankRow({
-    required this.rank,
-    required this.previousRank,
-    required this.showMovement,
-  });
-
-  final int rank;
-  final int? previousRank;
-  final bool showMovement;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectivePrevious = previousRank ?? rank;
-    final delta = effectivePrevious - rank;
-    Widget? arrow;
-    if (showMovement) {
-      if (delta > 0) {
-        arrow = Icon(Icons.arrow_upward, size: 20, color: Colors.green.shade400);
-      } else if (delta < 0) {
-        arrow = Icon(Icons.arrow_downward, size: 20, color: Colors.red.shade400);
-      } else {
-        arrow = Icon(Icons.remove, size: 20, color: Colors.white.withValues(alpha: 0.45));
-      }
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'Rank',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.white.withValues(alpha: 0.6),
-            ),
-          ),
           Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              if (arrow != null) ...[arrow, const SizedBox(width: 6)],
-              Text(
-                '$rank',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                tooltip: 'Back',
+                icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                color: Colors.white,
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFF11151B),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: Color(0xFF202631)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  stats.isCurrentUser
+                      ? 'Your Performance'
+                      : 'Player Performance',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 18),
+          _PlayerHero(stats: stats, rank: rank, range: selectedRange),
+          const SizedBox(height: 22),
+          const _SectionTitle('Stat Line'),
+          const SizedBox(height: 10),
+          _StatGrid(stats: stats),
+          const SizedBox(height: 22),
+          const _SectionTitle('Activity Breakdown'),
+          const SizedBox(height: 10),
+          _BreakdownCard(stats: stats),
         ],
       ),
-    );
-  }
+    ),
+  );
 }
 
-class _StatRow extends StatelessWidget {
-  const _StatRow({required this.label, required this.value});
+class _PlayerHero extends StatelessWidget {
+  const _PlayerHero({
+    required this.stats,
+    required this.rank,
+    required this.range,
+  });
+  final MotionStats stats;
+  final int rank;
+  final String range;
 
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: const Color(0xFF315E91)),
+      gradient: const LinearGradient(
+        colors: [Color(0xFF102A4B), Color(0xFF091522)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x26168BFF),
+          blurRadius: 24,
+          offset: Offset(0, 10),
+        ),
+      ],
+    ),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                CircleAvatar(
+                  radius: 42,
+                  backgroundColor: const Color(0xFF23324A),
+                  backgroundImage: stats.avatarUrl?.isNotEmpty == true
+                      ? NetworkImage(stats.avatarUrl!)
+                      : null,
+                  child: stats.avatarUrl?.isNotEmpty == true
+                      ? null
+                      : Text(
+                          stats.name.isEmpty
+                              ? '?'
+                              : stats.name.characters.first.toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                ),
+                Positioned(
+                  right: -3,
+                  bottom: -3,
+                  child: _RankBadge(rank: rank),
+                ),
+              ],
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stats.isCurrentUser ? '${stats.name} · You' : stats.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '#$rank · $range',
+                    style: const TextStyle(
+                      color: Color(0xFF87A9CF),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        Container(height: 1, color: const Color(0xFF264565)),
+        const SizedBox(height: 18),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const FootstepsIcon(size: 28, color: Color(0xFF3FA5FF)),
+            const SizedBox(width: 12),
+            Text(
+              _format(stats.steps),
+              style: const TextStyle(
+                color: Color(0xFF3FA5FF),
+                fontSize: 40,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const Text(
+          'STEPS',
+          style: TextStyle(
+            color: Color(0xFF89A0BA),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _StatGrid extends StatelessWidget {
+  const _StatGrid({required this.stats});
+  final MotionStats stats;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: _StatTile(
+          icon: Icons.route_rounded,
+          color: const Color(0xFF16D69A),
+          label: 'Miles',
+          value: stats.miles.toStringAsFixed(1),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _StatTile(
+          icon: Icons.local_fire_department_rounded,
+          color: const Color(0xFFFF8A1E),
+          label: 'Calories',
+          value: '${_format(stats.activeCalories)} CAL',
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _StatTile(
+          icon: Icons.timer_outlined,
+          color: const Color(0xFF9A73FF),
+          label: 'Exercise',
+          value: '${stats.exerciseMinutes} MIN',
+        ),
+      ),
+    ],
+  );
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+  final IconData icon;
+  final Color color;
   final String label;
   final String value;
 
   @override
+  Widget build(BuildContext context) => Container(
+    height: 108,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFF11151B),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: const Color(0xFF202631)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: 20),
+        const Spacer(),
+        Text(
+          value,
+          maxLines: 1,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Color(0xFF808B9C), fontSize: 10),
+        ),
+      ],
+    ),
+  );
+}
+
+class _BreakdownCard extends StatelessWidget {
+  const _BreakdownCard({required this.stats});
+  final MotionStats stats;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: const Color(0xFF11151B),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: const Color(0xFF202631)),
+    ),
+    child: Column(
+      children: [
+        _ProgressRow(
+          label: 'Steps',
+          value: stats.steps,
+          reference: 10000,
+          color: const Color(0xFF218FFF),
+        ),
+        const SizedBox(height: 18),
+        _ProgressRow(
+          label: 'Active calories',
+          value: stats.activeCalories,
+          reference: 500,
+          color: const Color(0xFFFF8A1E),
+        ),
+        const SizedBox(height: 18),
+        _ProgressRow(
+          label: 'Exercise minutes',
+          value: stats.exerciseMinutes,
+          reference: 30,
+          color: const Color(0xFF9A73FF),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ProgressRow extends StatelessWidget {
+  const _ProgressRow({
+    required this.label,
+    required this.value,
+    required this.reference,
+    required this.color,
+  });
+  final String label;
+  final int value;
+  final int reference;
+  final Color color;
+
+  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.white.withValues(alpha: 0.6),
+    final progress = math.min(1.0, value / reference);
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(color: Color(0xFF98A3B4), fontSize: 13),
+              ),
             ),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
+            Text(
+              _format(value),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
             ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 8,
+            backgroundColor: color.withValues(alpha: .14),
+            valueColor: AlwaysStoppedAnimation(color),
           ),
-        ],
+        ),
+      ],
+    );
+  }
+}
+
+class _RankBadge extends StatelessWidget {
+  const _RankBadge({required this.rank});
+  final int rank;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = rank == 1
+        ? const Color(0xFFFFC22E)
+        : rank == 2
+        ? const Color(0xFFBBC6D6)
+        : rank == 3
+        ? const Color(0xFFC98246)
+        : const Color(0xFF536073);
+    return Container(
+      width: 30,
+      height: 30,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(colors: [color, color.withValues(alpha: .55)]),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        '$rank',
+        style: const TextStyle(
+          color: Color(0xFF121418),
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
 }
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: const TextStyle(
+      color: Colors.white,
+      fontSize: 18,
+      fontWeight: FontWeight.w800,
+    ),
+  );
+}
+
+String _format(num value) => value.round().toString().replaceAllMapped(
+  RegExp(r'\B(?=(\d{3})+(?!\d))'),
+  (_) => ',',
+);

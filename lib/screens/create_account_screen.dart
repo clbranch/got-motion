@@ -68,7 +68,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         backgroundColor: _background,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: Colors.white.withValues(alpha: 0.9)),
+          icon: Icon(
+            Icons.arrow_back_rounded,
+            color: Colors.white.withValues(alpha: 0.9),
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
@@ -169,7 +172,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     decoration: _inputDecoration('Display name'),
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return 'Enter a display name';
+                      if (v == null || v.trim().isEmpty)
+                        return 'Enter a display name';
                       return null;
                     },
                     onChanged: (_) => _clearError(),
@@ -182,7 +186,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     decoration: _inputDecoration('Email'),
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return 'Enter your email';
+                      if (v == null || v.trim().isEmpty)
+                        return 'Enter your email';
                       if (!v.contains('@')) return 'Enter a valid email';
                       return null;
                     },
@@ -197,7 +202,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
                       if (v == null || v.isEmpty) return 'Enter a password';
-                      if (v.length < 6) return 'Password must be at least 6 characters';
+                      if (v.length < 6)
+                        return 'Password must be at least 6 characters';
                       return null;
                     },
                     onChanged: (_) => _clearError(),
@@ -210,8 +216,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     decoration: _inputDecoration('Confirm password'),
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
-                      if (v == null || v.isEmpty) return 'Confirm your password';
-                      if (v != _passwordController.text) return 'Passwords do not match';
+                      if (v == null || v.isEmpty)
+                        return 'Confirm your password';
+                      if (v != _passwordController.text)
+                        return 'Passwords do not match';
                       return null;
                     },
                     onChanged: (_) => _clearError(),

@@ -24,7 +24,9 @@ class AuthProfileSyncService {
 
     final updates = <String, dynamic>{};
     final isDisplayNameMissing = (profile.displayName ?? '').trim().isEmpty;
-    if (isDisplayNameMissing && googleDisplayName != null && googleDisplayName.isNotEmpty) {
+    if (isDisplayNameMissing &&
+        googleDisplayName != null &&
+        googleDisplayName.isNotEmpty) {
       updates['display_name'] = googleDisplayName;
     }
 
@@ -56,7 +58,9 @@ class AuthProfileSyncService {
     }
 
     final storagePath = '${user.id}/avatar_google.jpg';
-    await _supabase.storage.from('avatars').uploadBinary(
+    await _supabase.storage
+        .from('avatars')
+        .uploadBinary(
           storagePath,
           photoBytes,
           fileOptions: const FileOptions(
@@ -64,11 +68,15 @@ class AuthProfileSyncService {
             contentType: 'image/jpeg',
           ),
         );
-    final storedUrl = _supabase.storage.from('avatars').getPublicUrl(storagePath);
+    final storedUrl = _supabase.storage
+        .from('avatars')
+        .getPublicUrl(storagePath);
 
     updates['avatar_url'] = storedUrl;
     updates['avatar_source'] = 'google';
-    updates['google_avatar_last_synced_at'] = DateTime.now().toUtc().toIso8601String();
+    updates['google_avatar_last_synced_at'] = DateTime.now()
+        .toUtc()
+        .toIso8601String();
     updates['updated_at'] = DateTime.now().toUtc().toIso8601String();
 
     await _supabase.from('profiles').update(updates).eq('id', user.id);

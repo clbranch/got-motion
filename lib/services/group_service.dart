@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'avatar_image.dart';
 
 /// Result of creating a group: id, name, invite_code.
 class CreateGroupResult {
@@ -43,7 +46,10 @@ class GroupService {
   static const int _inviteCodeLength = 6;
 
   static String _generateInviteCode() {
-    return List.generate(_inviteCodeLength, (_) => _inviteCodeChars[_random.nextInt(_inviteCodeChars.length)]).join();
+    return List.generate(
+      _inviteCodeLength,
+      (_) => _inviteCodeChars[_random.nextInt(_inviteCodeChars.length)],
+    ).join();
   }
 
   /// Fetches the invite code for a group the user is in. Returns null if not found or RLS denies.
@@ -68,7 +74,9 @@ class GroupService {
     try {
       final response = await _supabase
           .from('group_members')
-          .select('group_id, groups(id, name, invite_code, created_by)')
+          .select(
+            'group_id, groups(id, name, invite_code, created_by, image_url)',
+          )
           .eq('user_id', userId);
       final list = List<Map<String, dynamic>>.from(response);
       // ignore: avoid_print
@@ -98,7 +106,9 @@ class GroupService {
     for (var attempt = 0; attempt < 5; attempt++) {
       final code = _generateInviteCode();
       // ignore: avoid_print
-      print('[GroupService] createGroup payload: name="$trimmedName", invite_code=$code (attempt ${attempt + 1})');
+      print(
+        '[GroupService] createGroup payload: name="$trimmedName", invite_code=$code (attempt ${attempt + 1})',
+      );
       try {
         final response = await _supabase
             .from('groups')
@@ -117,7 +127,8 @@ class GroupService {
         print('[GroupService] createGroup Supabase/database error: $e');
         // ignore: avoid_print
         print('[GroupService] createGroup stackTrace: $st');
-        if (e.toString().contains('unique') || e.toString().contains('duplicate')) {
+        if (e.toString().contains('unique') ||
+            e.toString().contains('duplicate')) {
           continue;
         }
         rethrow;
@@ -149,13 +160,17 @@ class GroupService {
   /// Joins a group by invite code. Throws [GroupNotFound] or [AlreadyInGroup] with friendly messages.
   Future<JoinGroupResult> joinByInviteCode(String userId, String code) async {
     // ignore: avoid_print
-    print('[GroupService] joinByInviteCode: current auth user id=$userId, code="$code"');
+    print(
+      '[GroupService] joinByInviteCode: current auth user id=$userId, code="$code"',
+    );
     final normalizedCode = code.trim().toUpperCase();
     if (normalizedCode.isEmpty) {
       throw GroupNotFound('Please enter an invite code.');
     }
     // ignore: avoid_print
-    print('[GroupService] joinByInviteCode: looking up group with invite_code=$normalizedCode');
+    print(
+      '[GroupService] joinByInviteCode: looking up group with invite_code=$normalizedCode',
+    );
     List<Map<String, dynamic>> groups;
     try {
       final groupRows = await _supabase
@@ -217,7 +232,7 @@ class GroupService {
           .from('group_members')
           .select('user_id')
           .eq('group_id', groupId);
-      
+
       final list = List<Map<String, dynamic>>.from(response);
       final userIds = list.map((r) => r['user_id'] as String).toList();
 
@@ -227,17 +242,15 @@ class GroupService {
           .from('profiles')
           .select('id, email, display_name, avatar_url')
           .inFilter('id', userIds);
-          
+
       final profiles = List<Map<String, dynamic>>.from(profilesResponse);
-      
-      final profileMap = {
-        for (final p in profiles) p['id'] as String: p
-      };
+
+      final profileMap = {for (final p in profiles) p['id'] as String: p};
 
       return list.map((r) {
         final userId = r['user_id'] as String;
         final profile = profileMap[userId];
-        
+
         return {
           'user_id': userId,
           'email': profile?['email']?.toString(),
@@ -253,12 +266,14 @@ class GroupService {
             .select('user_id')
             .eq('group_id', groupId);
         return (List<Map<String, dynamic>>.from(fallback))
-            .map((r) => {
-                  'user_id': r['user_id'],
-                  'email': null,
-                  'display_name': null,
-                  'avatar_url': null,
-                })
+            .map(
+              (r) => {
+                'user_id': r['user_id'],
+                'email': null,
+                'display_name': null,
+                'avatar_url': null,
+              },
+            )
             .toList();
       } catch (fallbackErr) {
         return [];
@@ -282,14 +297,80 @@ class GroupService {
     }
   }
 
+  /// Removes another user from a group. Supabase RLS only permits the group's
+  /// creator to perform this action.
+  Future<void> removeMember(String userId, String groupId) async {
+    try {
+      await _supabase
+          .from('group_members')
+          .delete()
+          .eq('user_id', userId)
+          .eq('group_id', groupId);
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[GroupService] removeMember error: $e');
+      // ignore: avoid_print
+      print('[GroupService] removeMember stackTrace: $st');
+      rethrow;
+    }
+  }
+
+  /// Transfers group ownership to an existing member and removes the current
+  /// creator from the group in one database transaction.
+  Future<void> transferOwnershipAndLeave({
+    required String groupId,
+    required String newOwnerId,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'transfer_group_ownership_and_leave',
+        params: {'target_group_id': groupId, 'new_owner_id': newOwnerId},
+      );
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[GroupService] transferOwnershipAndLeave error: $e');
+      // ignore: avoid_print
+      print('[GroupService] transferOwnershipAndLeave stackTrace: $st');
+      rethrow;
+    }
+  }
+
+  Future<String> uploadGroupImage({
+    required String groupId,
+    required File file,
+  }) async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId == null) throw StateError('Not signed in');
+    final bytes = await AvatarImage.prepare(file);
+    final path = '$groupId/avatar${AvatarImage.extension}';
+    await _supabase.storage
+        .from('group-avatars')
+        .uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            contentType: AvatarImage.contentType,
+          ),
+        );
+    final base = _supabase.storage.from('group-avatars').getPublicUrl(path);
+    final url = '$base?v=${DateTime.now().millisecondsSinceEpoch}';
+    final updated = await _supabase
+        .from('groups')
+        .update({'image_url': url})
+        .eq('id', groupId)
+        .select('id');
+    if (updated.isEmpty) {
+      throw StateError('Only the group admin can change this photo.');
+    }
+    return url;
+  }
+
   Future<void> deleteGroup(String groupId) async {
     try {
       // Because group_members and group_invites have ON DELETE CASCADE (or should be managed),
       // we just delete the group. The RLS will block it if not the creator.
-      await _supabase
-          .from('groups')
-          .delete()
-          .eq('id', groupId);
+      await _supabase.from('groups').delete().eq('id', groupId);
     } catch (e, st) {
       // ignore: avoid_print
       print('[GroupService] deleteGroup error: $e');

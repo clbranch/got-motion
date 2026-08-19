@@ -2,18 +2,38 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/motion_stats.dart';
 import '../models/today_metrics.dart';
 import '../services/daily_steps_service.dart';
+import '../services/goal_service.dart';
+import '../services/main_nav_service.dart';
+import '../services/group_invite_service.dart';
+import '../services/group_service.dart';
 import '../services/health_service.dart';
 import '../services/leaderboard_service.dart';
+import '../services/profile_service.dart';
+import '../services/notification_service.dart';
 import '../services/selected_group_service.dart';
+import '../services/sync_activity_service.dart';
+import '../screens/notification_center_screen.dart';
+import '../widgets/footsteps_icon.dart';
+import '../widgets/goal_complete_celebration.dart';
+import '../widgets/group_avatar.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, this.onSeeAllLeaderboard, this.onOpenGroupTab});
+  const HomeScreen({
+    super.key,
+    this.isActive = true,
+    this.onSeeAllLeaderboard,
+    this.onOpenGroupTab,
+  });
 
+  /// True when this tab is visible in the bottom nav.
+  final bool isActive;
   final VoidCallback? onSeeAllLeaderboard;
   final VoidCallback? onOpenGroupTab;
 
@@ -21,10 +41,9 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const _background = Color(0xFF07090D);
   static const _accent = Color(0xFF168BFF);
-  static const _stepGoal = 10000;
 
   TodayMetrics _today = TodayMetrics.zero;
   int _weekTotal = 0;
@@ -37,17 +56,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final _dailySteps = DailyStepsService();
   final _leaderboard = LeaderboardService();
+  final _groupService = GroupService();
+  final _inviteService = GroupInviteService();
+
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     selectedGroupService.addListener(_groupChanged);
+    goalService.addListener(_goalsChanged);
+    notificationService.addListener(_notificationsChanged);
+    goalService.reloadFromCurrentUser();
+    syncActivityService.hydrate();
+    notificationService.refresh();
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     selectedGroupService.removeListener(_groupChanged);
+    goalService.removeListener(_goalsChanged);
+    notificationService.removeListener(_notificationsChanged);
     super.dispose();
   }
 
@@ -55,16 +87,48 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) _load();
   }
 
+  void _goalsChanged() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _notificationsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _load();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.isActive) {
+      _load();
+    }
+  }
+
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    await selectedGroupService.hydrate();
+    if (!mounted || generation != _loadGeneration) return;
+
     final values = await Future.wait<dynamic>([
       HealthService.getTodayMetrics(),
       HealthService.getWeekStepsTotal(),
       HealthService.getWeekStepsByDay(),
       HealthService.getTodayStandHours(),
     ]);
+    if (!mounted || generation != _loadGeneration) return;
+
     final today = values[0] as TodayMetrics;
     final leaders = await _fetchLeaders(today);
-    if (!mounted) return;
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
       _today = today;
       _weekTotal = values[1] as int;
@@ -75,6 +139,23 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = false;
     });
     _sync(today);
+    _maybeCelebrateGoals(today);
+  }
+
+  void _maybeCelebrateGoals(TodayMetrics today) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    if (!GoalCelebrationService.allGoalsComplete(today, goalService.goals)) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      goalCelebrationService.maybeCelebrate(
+        context,
+        userId: userId,
+        onKeepMoving: mainNavService.goToProfile,
+      );
+    });
   }
 
   int? _findRank(List<MotionStats> leaders) {
@@ -106,32 +187,46 @@ class _HomeScreenState extends State<HomeScreen> {
         groupId,
         date: date,
       );
-      final others = rows
-          .where((row) {
-            return row['user_id']?.toString() != user?.id &&
-                row['email']?.toString().toLowerCase() !=
-                    user?.email?.toLowerCase();
-          })
-          .map(
-            (row) => MotionStats(
-              name: LeaderboardService.resolveDisplayName(row),
-              steps: (row['total_steps'] as num?)?.toInt() ?? 0,
-              miles: (row['total_miles'] as num?)?.toDouble() ?? 0,
-              activeCalories:
-                  (row['total_active_calories'] as num?)?.toInt() ?? 0,
-              exerciseMinutes:
-                  (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
-              avatarUrl: row['avatar_url']?.toString(),
-              previousRank: null,
-            ),
-          );
+      String? myAvatar;
+      final others = <MotionStats>[];
+      for (final row in rows) {
+        final isMe = LeaderboardService.isCurrentUserRow(
+          row,
+          userId: user?.id,
+          email: user?.email?.toLowerCase(),
+        );
+        if (isMe) {
+          final url = row['avatar_url']?.toString();
+          if (url != null && url.isNotEmpty) myAvatar = url;
+          continue;
+        }
+        others.add(
+          MotionStats(
+            name: LeaderboardService.resolveDisplayName(row),
+            steps: (row['total_steps'] as num?)?.toInt() ?? 0,
+            miles: (row['total_miles'] as num?)?.toDouble() ?? 0,
+            activeCalories:
+                (row['total_active_calories'] as num?)?.toInt() ?? 0,
+            exerciseMinutes:
+                (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
+            avatarUrl: row['avatar_url']?.toString(),
+            previousRank: null,
+          ),
+        );
+      }
+      if (myAvatar == null || myAvatar.isEmpty) {
+        final profile = await ProfileService().getCurrentProfile();
+        myAvatar = profile?.avatarUrl ?? profile?.googleAvatarUrl;
+      }
       final me = MotionStats(
         name: 'You',
         steps: today.steps,
         miles: today.distanceMiles,
         activeCalories: today.activeEnergyCalories.round(),
         exerciseMinutes: today.exerciseMinutes.round(),
+        avatarUrl: myAvatar,
         previousRank: null,
+        isCurrentUser: true,
       );
       return [me, ...others]..sort((a, b) => b.steps.compareTo(a.steps));
     } catch (_) {
@@ -175,6 +270,8 @@ class _HomeScreenState extends State<HomeScreen> {
         activeCalories: today.activeEnergyCalories.round(),
         exerciseMinutes: today.exerciseMinutes.round(),
       );
+      await syncActivityService.markHealthSynced();
+      Future(() => _dailySteps.syncMonthToDate(user.id));
       final leaders = await _fetchLeaders(today);
       if (mounted) {
         setState(() {
@@ -189,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final goals = goalService.goals;
     return Scaffold(
       backgroundColor: _background,
       body: SafeArea(
@@ -202,33 +300,61 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                   children: [
                     _Header(
+                      groups: selectedGroupService.groupNames,
                       groupName: selectedGroupService.selectedGroupName,
-                      onGroupTap: widget.onOpenGroupTab,
+                      onGroupSelected: selectedGroupService.setSelectedGroup,
+                      onManageGroup: widget.onOpenGroupTab,
                       onNotifications: _showNotifications,
+                      unreadNotifications: notificationService.unreadCount,
+                      onInvitePeople: _showInviteMembers,
                     ),
                     const SizedBox(height: 18),
-                    _GoalHero(
-                      steps: _today.steps,
-                      goal: _stepGoal,
-                      rank: _rank,
-                      leaderSteps: _leaders.isEmpty
-                          ? null
-                          : _leaders.first.steps,
-                      hasGroup: selectedGroupService.selectedGroupId != null,
-                      onGroupTap: widget.onOpenGroupTab,
-                      dayLabel: _isToday
-                          ? "Today's"
-                          : "${_weekday(_selectedDay)}'s",
-                    ),
-                    const SizedBox(height: 24),
-                    _Title(_isToday ? 'Today' : _weekday(_selectedDay)),
-                    const SizedBox(height: 12),
-                    _MetricGrid(metrics: _today, stepGoal: _stepGoal),
-                    const SizedBox(height: 12),
-                    _ActivityStrip(
-                      calories: _today.activeEnergyCalories,
-                      exercise: _today.exerciseMinutes,
-                      stand: _standHours,
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.03, 0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      ),
+                      child: Column(
+                        key: ValueKey(_selectedDay),
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _GoalHero(
+                            steps: _today.steps,
+                            goal: goals.steps,
+                            rank: _rank,
+                            leaderSteps: _leaders.isEmpty
+                                ? null
+                                : _leaders.first.steps,
+                            hasGroup:
+                                selectedGroupService.selectedGroupId != null,
+                            onGroupTap: widget.onOpenGroupTab,
+                            dayLabel: _isToday
+                                ? "Today's"
+                                : "${_weekday(_selectedDay)}'s",
+                          ),
+                          const SizedBox(height: 24),
+                          _Title(_isToday ? 'Today' : _weekday(_selectedDay)),
+                          const SizedBox(height: 12),
+                          _MetricGrid(metrics: _today, stepGoal: goals.steps),
+                          const SizedBox(height: 12),
+                          _ActivityStrip(
+                            calories: _today.activeEnergyCalories,
+                            exercise: _today.exerciseMinutes,
+                            stand: _standHours,
+                            calorieGoal: goals.activeCalories.toDouble(),
+                            exerciseGoal: goals.exerciseMinutes.toDouble(),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 24),
                     _WeeklyCard(
@@ -252,40 +378,332 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showNotifications() {
-    showModalBottomSheet<void>(
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const NotificationCenterScreen()),
+    );
+  }
+
+  Future<void> _showInviteMembers() async {
+    final groupId = selectedGroupService.selectedGroupId;
+    final groupName = selectedGroupService.selectedGroupName;
+    if (groupId == null || groupName == null || groupName.isEmpty) {
+      widget.onOpenGroupTab?.call();
+      return;
+    }
+
+    var code = selectedGroupService.selectedGroupInviteCode;
+    code ??= await _groupService.getGroupInviteCode(groupId);
+    if (!mounted) return;
+    if (code == null || code.isEmpty) {
+      _showInviteMessage(
+        'This group does not have an invite code yet.',
+        isError: true,
+      );
+      return;
+    }
+
+    final inviteCode = code;
+    await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF11151B),
       showDragHandle: true,
-      builder: (context) => const SafeArea(
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => SafeArea(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(24, 8, 24, 32),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              const Row(
                 children: [
                   Icon(
-                    Icons.notifications_none_rounded,
+                    Icons.person_add_alt_1_rounded,
                     color: Color(0xFF45A4FF),
                   ),
                   SizedBox(width: 10),
                   Text(
-                    'Notifications',
+                    'Invite members',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 20,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 28),
+              const SizedBox(height: 4),
               Text(
-                'You are all caught up.',
-                style: TextStyle(color: Color(0xFFA4ADBB), fontSize: 15),
+                'Bring someone into $groupName.',
+                style: const TextStyle(color: Color(0xFF8590A2), fontSize: 13),
+              ),
+              const SizedBox(height: 18),
+              _InviteAction(
+                icon: Icons.ios_share_rounded,
+                title: 'Share invite link',
+                subtitle: 'Send through Messages, Mail, or another app',
+                isPrimary: true,
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await Future<void>.delayed(const Duration(milliseconds: 400));
+                  if (mounted) {
+                    await _shareInvite(
+                      groupName,
+                      inviteCode,
+                      _nativeShareOrigin(),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 8),
+              _InviteAction(
+                icon: Icons.alternate_email_rounded,
+                title: 'Invite by email',
+                subtitle: 'Send an invitation directly',
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  await Future<void>.delayed(const Duration(milliseconds: 400));
+                  if (mounted) await _showInviteByEmailDialog();
+                },
+              ),
+              const SizedBox(height: 8),
+              _InviteAction(
+                icon: Icons.copy_rounded,
+                title: 'Copy invite code',
+                subtitle: inviteCode,
+                onTap: () async {
+                  await Clipboard.setData(ClipboardData(text: inviteCode));
+                  if (!sheetContext.mounted) return;
+                  Navigator.of(sheetContext).pop();
+                  _showInviteMessage('Invite code copied.');
+                },
+              ),
+              const SizedBox(height: 8),
+              _InviteAction(
+                icon: Icons.groups_2_outlined,
+                title: 'Manage group',
+                subtitle: 'View members and group settings',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  widget.onOpenGroupTab?.call();
+                },
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Rect _nativeShareOrigin() {
+    final renderObject = context.findRenderObject();
+    if (renderObject is RenderBox && renderObject.hasSize) {
+      final center = renderObject.localToGlobal(
+        renderObject.size.center(Offset.zero),
+      );
+      return Rect.fromCenter(center: center, width: 1, height: 1);
+    }
+    final size = MediaQuery.sizeOf(context);
+    return Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2),
+      width: 1,
+      height: 1,
+    );
+  }
+
+  Future<void> _shareInvite(
+    String groupName,
+    String code,
+    Rect shareOrigin,
+  ) async {
+    final inviteLink = 'gotmotion://join/$code';
+    final text =
+        "Join my Got Motion group '$groupName'.\n\n"
+        'Use invite code: $code\n\n'
+        'Open this invite:\n$inviteLink';
+    try {
+      await Share.share(
+        text,
+        subject: 'Join $groupName on Got Motion',
+        sharePositionOrigin: shareOrigin,
+      );
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[HomeInvite] Native share sheet failed: $error');
+      }
+      await Clipboard.setData(ClipboardData(text: text));
+      if (mounted) _showInviteMessage('Invite link copied.');
+    }
+  }
+
+  Future<void> _showInviteByEmailDialog() async {
+    final controller = TextEditingController();
+    final email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF141820),
+        title: const Text(
+          'Invite by email',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          autocorrect: false,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: 'Email address',
+            labelStyle: TextStyle(color: Color(0xFF8D96A8)),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: Color(0xFF343C49)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: _accent),
+            ),
+          ),
+          onSubmitted: (_) =>
+              Navigator.of(dialogContext).pop(controller.text.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Send invite'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (email == null || email.isEmpty) return;
+    await _inviteByEmail(email);
+  }
+
+  Future<void> _inviteByEmail(String email) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    final groupId = selectedGroupService.selectedGroupId;
+    final trimmed = email.trim().toLowerCase();
+    if (user == null || groupId == null) return;
+    if (!trimmed.contains('@')) {
+      _showInviteMessage('Enter a valid email address.', isError: true);
+      return;
+    }
+    try {
+      final record = await _inviteService.createInvite(
+        groupId: groupId,
+        invitedEmail: trimmed,
+        invitedBy: user.id,
+      );
+      final sent = await _inviteService.sendInviteEmail(record.id);
+      if (!mounted) return;
+      _showInviteMessage(
+        sent
+            ? 'Invite sent to ${record.invitedEmail}.'
+            : 'Invite saved. Share the group code if the email does not arrive.',
+      );
+    } on InviteAlreadyExists {
+      if (mounted) {
+        _showInviteMessage(
+          'An invite was already sent to this email.',
+          isError: true,
+        );
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[HomeInvite] Email invite failed: $error');
+      }
+      if (mounted) {
+        _showInviteMessage(
+          'Could not send the invite. Try again.',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  void _showInviteMessage(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? const Color(0xFFEF4444) : _accent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+}
+
+class _InviteAction extends StatelessWidget {
+  const _InviteAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.isPrimary = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool isPrimary;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isPrimary ? const Color(0xFF102A4B) : const Color(0xFF151A22),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isPrimary
+                ? const Color(0xFF276EBA)
+                : const Color(0xFF242B36),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isPrimary
+                  ? const Color(0xFF45A4FF)
+                  : const Color(0xFF9BA5B7),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Color(0xFF8590A2),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF667184)),
+          ],
         ),
       ),
     );
@@ -294,13 +712,110 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _Header extends StatelessWidget {
   const _Header({
+    required this.groups,
     required this.groupName,
-    required this.onGroupTap,
+    required this.onGroupSelected,
+    required this.onManageGroup,
     required this.onNotifications,
+    this.unreadNotifications = 0,
+    required this.onInvitePeople,
   });
+  final List<String> groups;
   final String? groupName;
-  final VoidCallback? onGroupTap;
+  final ValueChanged<String> onGroupSelected;
+  final VoidCallback? onManageGroup;
   final VoidCallback onNotifications;
+  final int unreadNotifications;
+  final VoidCallback onInvitePeople;
+
+  Future<void> _showGroupPicker(BuildContext context) async {
+    if (groups.isEmpty) {
+      onManageGroup?.call();
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF11151B),
+      showDragHandle: true,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Choose a group',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Switch the competition shown on your dashboard.',
+                style: TextStyle(color: Color(0xFF8590A2), fontSize: 13),
+              ),
+              const SizedBox(height: 18),
+              ...groups.map((group) {
+                final active = group == groupName;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      if (!active) onGroupSelected(group);
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: active
+                            ? const Color(0xFF102A4B)
+                            : const Color(0xFF151A22),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: active
+                              ? const Color(0xFF276EBA)
+                              : const Color(0xFF242B36),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          GroupAvatar(name: group, size: 42),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              group,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (active)
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              color: Color(0xFF45A4FF),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -309,24 +824,13 @@ class _Header extends StatelessWidget {
       children: [
         Expanded(
           child: InkWell(
-            onTap: onGroupTap,
+            onTap: () => _showGroupPicker(context),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF14233B),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.groups_rounded,
-                      color: Color(0xFF5BA9FF),
-                    ),
-                  ),
+                  GroupAvatar(name: groupName, size: 46),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -368,23 +872,62 @@ class _Header extends StatelessWidget {
             ),
           ),
         ),
-        IconButton.filled(
-          onPressed: onNotifications,
-          tooltip: 'Notifications',
-          style: IconButton.styleFrom(
-            backgroundColor: const Color(0xFF11151D),
-            foregroundColor: const Color(0xFF9BA5B7),
-            fixedSize: const Size(44, 44),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: Color(0xFF242A35)),
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton.filled(
+              onPressed: onNotifications,
+              tooltip: 'Notifications',
+              style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFF11151D),
+                foregroundColor: unreadNotifications > 0
+                    ? const Color(0xFF45A4FF)
+                    : const Color(0xFF9BA5B7),
+                fixedSize: const Size(44, 44),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: const BorderSide(color: Color(0xFF242A35)),
+                ),
+              ),
+              icon: Icon(
+                unreadNotifications > 0
+                    ? Icons.notifications_rounded
+                    : Icons.notifications_none_rounded,
+              ),
             ),
-          ),
-          icon: const Icon(Icons.notifications_none_rounded),
+            if (unreadNotifications > 0)
+              Positioned(
+                right: 2,
+                top: 2,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 18),
+                  height: 18,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF238BFF),
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(
+                      color: const Color(0xFF07090D),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Text(
+                    unreadNotifications > 9 ? '9+' : '$unreadNotifications',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
         const SizedBox(width: 8),
         IconButton.filled(
-          onPressed: onGroupTap,
+          onPressed: onInvitePeople,
           tooltip: 'Add people',
           style: IconButton.styleFrom(
             backgroundColor: const Color(0xFF11151D),
@@ -544,10 +1087,7 @@ class _GoalHero extends StatelessWidget {
                             borderRadius: BorderRadius.all(Radius.circular(7)),
                           ),
                           child: const Center(
-                            child: _FootstepsIcon(
-                              size: 18,
-                              color: Colors.white,
-                            ),
+                            child: FootstepsIcon(size: 18, color: Colors.white),
                           ),
                         ),
                       ],
@@ -630,21 +1170,21 @@ class _MetricGrid extends StatelessWidget {
         const Color(0xFFFF8A1E),
         'Active Calories',
         _number(metrics.activeEnergyCalories.round()),
-        'kcal',
+        'CAL',
       ),
       _Metric(
         Icons.location_on_rounded,
         const Color(0xFF16D69A),
         'Miles',
         metrics.distanceMiles.toStringAsFixed(1),
-        'mi',
+        'MI',
       ),
       _Metric(
         Icons.timer_outlined,
         const Color(0xFF9A73FF),
         'Exercise Minutes',
         _number(metrics.exerciseMinutes.round()),
-        'min',
+        'MIN',
       ),
     ];
     return GridView.builder(
@@ -727,7 +1267,7 @@ class _MetricCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: data.label == 'Steps'
-                ? Center(child: _FootstepsIcon(size: 25, color: data.color))
+                ? Center(child: FootstepsIcon(size: 25, color: data.color))
                 : Icon(data.icon, color: data.color, size: 23),
           ),
           const SizedBox(width: 10),
@@ -774,65 +1314,19 @@ class _MetricCard extends StatelessWidget {
   );
 }
 
-class _FootstepsIcon extends StatelessWidget {
-  const _FootstepsIcon({required this.size, required this.color});
-
-  final double size;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => SizedBox.square(
-    dimension: size,
-    child: CustomPaint(painter: _FootstepsPainter(color)),
-  );
-}
-
-class _FootstepsPainter extends CustomPainter {
-  const _FootstepsPainter(this.color);
-
-  final Color color;
-
-  void _foot(Canvas canvas, Size size, Offset center, double angle) {
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(angle);
-    final paint = Paint()..color = color;
-    final scale = size.shortestSide / 24;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(0, 2 * scale),
-        width: 6 * scale,
-        height: 10 * scale,
-      ),
-      paint,
-    );
-    canvas.drawCircle(Offset(-2.4 * scale, -4.4 * scale), 1.3 * scale, paint);
-    canvas.drawCircle(Offset(-.4 * scale, -5.4 * scale), 1.25 * scale, paint);
-    canvas.drawCircle(Offset(1.7 * scale, -5.1 * scale), 1.1 * scale, paint);
-    canvas.drawCircle(Offset(3.2 * scale, -3.9 * scale), .85 * scale, paint);
-    canvas.restore();
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    _foot(canvas, size, Offset(size.width * .34, size.height * .39), -.12);
-    _foot(canvas, size, Offset(size.width * .68, size.height * .65), .12);
-  }
-
-  @override
-  bool shouldRepaint(covariant _FootstepsPainter oldDelegate) =>
-      oldDelegate.color != color;
-}
-
 class _ActivityStrip extends StatelessWidget {
   const _ActivityStrip({
     required this.calories,
     required this.exercise,
     required this.stand,
+    required this.calorieGoal,
+    required this.exerciseGoal,
   });
   final double calories;
   final double exercise;
   final double? stand;
+  final double calorieGoal;
+  final double exerciseGoal;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -844,8 +1338,8 @@ class _ActivityStrip extends StatelessWidget {
           child: _ActivityItem(
             'Move',
             calories,
-            500,
-            'kcal',
+            calorieGoal,
+            'CAL',
             const Color(0xFFFF315F),
           ),
         ),
@@ -854,8 +1348,8 @@ class _ActivityStrip extends StatelessWidget {
           child: _ActivityItem(
             'Exercise',
             exercise,
-            30,
-            'min',
+            exerciseGoal,
+            'MIN',
             const Color(0xFF87E923),
           ),
         ),
@@ -865,7 +1359,7 @@ class _ActivityStrip extends StatelessWidget {
             'Stand',
             stand,
             12,
-            'hrs',
+            'HRS',
             const Color(0xFF20DAD2),
           ),
         ),
@@ -1008,41 +1502,46 @@ class _WeeklyCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Expanded(
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            child: FractionallySizedBox(
-                              heightFactor: math.max(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final factor = math.max(
                                 .05,
                                 values[index] / maxValue,
-                              ),
-                              widthFactor: .55,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
-                                    colors: isSelected
+                              );
+                              return Align(
+                                alignment: Alignment.bottomCenter,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 380),
+                                  curve: Curves.easeOutCubic,
+                                  height: constraints.maxHeight * factor,
+                                  width: constraints.maxWidth * .55,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: isSelected
+                                          ? const [
+                                              Color(0xFF087BFF),
+                                              Color(0xFF35B5FF),
+                                            ]
+                                          : const [
+                                              Color(0xFF123766),
+                                              Color(0xFF246BC0),
+                                            ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(5),
+                                    boxShadow: isSelected
                                         ? const [
-                                            Color(0xFF087BFF),
-                                            Color(0xFF35B5FF),
+                                            BoxShadow(
+                                              color: Color(0x55168BFF),
+                                              blurRadius: 10,
+                                            ),
                                           ]
-                                        : const [
-                                            Color(0xFF123766),
-                                            Color(0xFF246BC0),
-                                          ],
+                                        : null,
                                   ),
-                                  borderRadius: BorderRadius.circular(5),
-                                  boxShadow: isSelected
-                                      ? const [
-                                          BoxShadow(
-                                            color: Color(0x55168BFF),
-                                            blurRadius: 10,
-                                          ),
-                                        ]
-                                      : null,
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           ),
                         ),
                       ],
@@ -1108,7 +1607,7 @@ class _LeaderboardCard extends StatelessWidget {
           ...entries.take(3).toList().asMap().entries.map((row) {
             final rank = row.key + 1;
             final entry = row.value;
-            final isMe = entry.name == 'You';
+            final isMe = entry.isCurrentUser || entry.name == 'You';
             final rankColor = rank == 1
                 ? const Color(0xFFFFC22E)
                 : rank == 2

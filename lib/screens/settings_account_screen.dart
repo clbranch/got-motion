@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/auth_service.dart';
 import '../services/profile_service.dart';
+import '../widgets/settings_ui.dart';
 
 class SettingsAccountScreen extends StatefulWidget {
   const SettingsAccountScreen({super.key});
@@ -14,9 +16,9 @@ class SettingsAccountScreen extends StatefulWidget {
 }
 
 class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
-  static const Color _background = Color(0xFF0B0B0F);
-  static const Color _cardBg = Color(0xFF14141A);
-  static const Color _accent = Color(0xFF3B82F6);
+  static const Color _background = settingsBackground;
+  static const Color _cardBg = settingsSurface;
+  static const Color _accent = settingsAccent;
 
   final ProfileService _profileService = ProfileService();
   ProfileData? _profile;
@@ -52,7 +54,12 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
 
   Future<void> _pickAndUploadAvatar() async {
     final picker = ImagePicker();
-    final x = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 85);
+    final x = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
     if (x == null || !mounted) return;
     setState(() => _savingAvatar = true);
     try {
@@ -101,7 +108,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _cardBg,
-        title: Text('Change Display Name', style: TextStyle(color: Colors.white.withValues(alpha: 0.95))),
+        title: Text(
+          'Change Display Name',
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.95)),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -109,9 +119,17 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
               controller: controller,
               decoration: InputDecoration(
                 labelText: 'Display Name',
-                labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
-                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: _accent)),
+                labelStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.3),
+                  ),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: _accent),
+                ),
               ),
               style: const TextStyle(color: Colors.white),
             ),
@@ -120,7 +138,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -157,13 +178,19 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _cardBg,
-        title: Text('Change Email', style: TextStyle(color: Colors.white.withValues(alpha: 0.95))),
+        title: Text(
+          'Change Email',
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.95)),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               'A confirmation link will be sent to the new email address.',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 14,
+              ),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -171,9 +198,17 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
               keyboardType: TextInputType.emailAddress,
               decoration: InputDecoration(
                 labelText: 'New Email',
-                labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
-                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: _accent)),
+                labelStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.3),
+                  ),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: _accent),
+                ),
               ),
               style: const TextStyle(color: Colors.white),
             ),
@@ -182,7 +217,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -198,8 +236,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       final newEmail = controller.text.trim();
       if (newEmail.isEmpty || newEmail == currentEmail) return;
 
-      await Supabase.instance.client.auth.updateUser(UserAttributes(email: newEmail));
-      
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(email: newEmail),
+      );
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -228,7 +268,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _cardBg,
-        title: Text('Reset Password', style: TextStyle(color: Colors.white.withValues(alpha: 0.95))),
+        title: Text(
+          'Reset Password',
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.95)),
+        ),
         content: Text(
           'We will send a password reset link to $email. Continue?',
           style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
@@ -236,7 +279,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -278,13 +324,19 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _cardBg,
-        title: Text('Set Password', style: TextStyle(color: Colors.white.withValues(alpha: 0.95))),
+        title: Text(
+          'Set Password',
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.95)),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               'Set a password so you can sign in with email/password in addition to Google.',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 13),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 13,
+              ),
             ),
             const SizedBox(height: 14),
             TextField(
@@ -292,9 +344,17 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
               obscureText: true,
               decoration: InputDecoration(
                 labelText: 'New Password',
-                labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
-                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: _accent)),
+                labelStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.3),
+                  ),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: _accent),
+                ),
               ),
               style: const TextStyle(color: Colors.white),
             ),
@@ -304,9 +364,17 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
               obscureText: true,
               decoration: InputDecoration(
                 labelText: 'Confirm Password',
-                labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
-                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: _accent)),
+                labelStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.3),
+                  ),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderSide: BorderSide(color: _accent),
+                ),
               ),
               style: const TextStyle(color: Colors.white),
             ),
@@ -315,7 +383,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -384,7 +455,10 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _cardBg,
-        title: Text('Delete Account', style: TextStyle(color: Colors.white.withValues(alpha: 0.95))),
+        title: Text(
+          'Delete Account',
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.95)),
+        ),
         content: Text(
           'Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently removed.',
           style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
@@ -392,21 +466,30 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(context).pop();
-              // TODO: Implement full secure account deletion
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Account deletion is coming soon.'),
-                  backgroundColor: Color(0xFFEF4444),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              final messenger = ScaffoldMessenger.of(context);
+              final error = await AuthService.deleteAccount();
+              if (!mounted) return;
+              if (error != null) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(error),
+                    backgroundColor: const Color(0xFFEF4444),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
             },
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -439,168 +522,207 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
 
     final displayLabel = _profile?.displayLabel ?? 'User';
     final avatarUrl = _profile?.avatarUrl;
-    final email = _profile?.email ?? Supabase.instance.client.auth.currentUser?.email ?? '';
-    final providers = _providerLabels(Supabase.instance.client.auth.currentUser);
+    final email =
+        _profile?.email ??
+        Supabase.instance.client.auth.currentUser?.email ??
+        '';
+    final providers = _providerLabels(
+      Supabase.instance.client.auth.currentUser,
+    );
     final providerSummary = providers.isEmpty ? 'Email' : providers.join(', ');
 
     return Scaffold(
       backgroundColor: _background,
-      appBar: AppBar(
-        backgroundColor: _background,
-        elevation: 0,
-        title: const Text('Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        centerTitle: true,
-      ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
           children: [
-            Center(
-              child: GestureDetector(
-                onTap: _savingAvatar ? null : _pickAndUploadAvatar,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        color: _cardBg,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
-                      ),
-                      child: ClipOval(
-                        child: (avatarUrl != null && avatarUrl.isNotEmpty)
-                            ? Image.network(
-                                avatarUrl,
-                                width: 88,
-                                height: 88,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => _avatarFallback(displayLabel),
-                              )
-                            : _avatarFallback(displayLabel),
-                      ),
+            const SettingsPageHeader(
+              title: 'Account',
+              subtitle: 'Manage how you appear and sign in.',
+            ),
+            const SizedBox(height: 24),
+            SettingsPanel(
+              accented: true,
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: _savingAvatar ? null : _pickAndUploadAvatar,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 82,
+                          height: 82,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1C3659),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFF2477C9)),
+                          ),
+                          child: ClipOval(
+                            child: avatarUrl != null && avatarUrl.isNotEmpty
+                                ? Image.network(
+                                    avatarUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            _avatarFallback(displayLabel),
+                                  )
+                                : _avatarFallback(displayLabel),
+                          ),
+                        ),
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: _accent,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xFF0D2543),
+                                width: 2,
+                              ),
+                            ),
+                            child: _savingAvatar
+                                ? const Padding(
+                                    padding: EdgeInsets.all(7),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.camera_alt_rounded,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
+                          ),
+                        ),
+                      ],
                     ),
-                    if (_savingAvatar)
-                      Positioned.fill(
-                        child: Container(
-                          decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                          child: const Center(
-                            child: SizedBox(
-                              width: 28,
-                              height: 28,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: settingsMuted,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 11),
+                        GestureDetector(
+                          onTap: _savingAvatar ? null : _pickAndUploadAvatar,
+                          child: const Text(
+                            'Change profile photo',
+                            style: TextStyle(
+                              color: Color(0xFF62B2FF),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                      )
-                    else
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: _accent,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: _background, width: 1.5),
-                          ),
-                          child: const Icon(Icons.camera_alt_rounded, size: 16, color: Colors.white),
-                        ),
-                      ),
-                  ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 26),
+            const SettingsSectionTitle('Profile details'),
+            const SizedBox(height: 10),
+            SettingsPanel(
+              child: Column(
+                children: [
+                  SettingsRow(
+                    icon: Icons.badge_outlined,
+                    iconColor: settingsAccent,
+                    title: 'Display name',
+                    subtitle: displayLabel,
+                    onTap: _changeDisplayName,
+                  ),
+                  const SettingsDivider(),
+                  SettingsRow(
+                    icon: Icons.email_outlined,
+                    iconColor: const Color(0xFF38D6C5),
+                    title: 'Email address',
+                    subtitle: email,
+                    onTap: _changeEmail,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 26),
+            const SettingsSectionTitle('Sign-in & security'),
+            const SizedBox(height: 10),
+            SettingsPanel(
+              child: Column(
+                children: [
+                  SettingsRow(
+                    icon: Icons.verified_user_outlined,
+                    iconColor: const Color(0xFF9B7CFF),
+                    title: 'Sign-in methods',
+                    subtitle: providerSummary,
+                    trailing: const Icon(
+                      Icons.check_circle_rounded,
+                      color: Color(0xFF38D6C5),
+                    ),
+                  ),
+                  const SettingsDivider(),
+                  SettingsRow(
+                    icon: Icons.password_rounded,
+                    iconColor: const Color(0xFFFFB547),
+                    title: 'Set or change password',
+                    subtitle: _savingPassword
+                        ? 'Saving securely...'
+                        : 'Update your email sign-in password',
+                    onTap: _savingPassword ? null : _setPasswordDirectly,
+                  ),
+                  const SettingsDivider(),
+                  SettingsRow(
+                    icon: Icons.mark_email_read_outlined,
+                    iconColor: const Color(0xFF62B2FF),
+                    title: 'Send reset link',
+                    subtitle: 'Email a password reset link',
+                    onTap: _resetPassword,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 26),
+            SettingsPanel(
+              child: SettingsRow(
+                icon: Icons.delete_forever_rounded,
+                iconColor: const Color(0xFFFF575F),
+                title: 'Delete account',
+                subtitle: 'Permanent deletion is not yet available',
+                destructive: true,
+                onTap: _showDeleteAccountDialog,
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFFFF575F),
                 ),
               ),
             ),
-            const SizedBox(height: 32),
-            Container(
-              decoration: BoxDecoration(color: _cardBg, borderRadius: BorderRadius.circular(16)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Sign-in methods',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    providerSummary,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withValues(alpha: 0.65),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Use the same verified email to sign in with either Google or email/password.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withValues(alpha: 0.45),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(color: _cardBg, borderRadius: BorderRadius.circular(16)),
-              child: Column(
-                children: [
-                  _buildActionRow('Display Name', displayLabel, onTap: _changeDisplayName),
-                  Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
-                  _buildActionRow('Email', email, onTap: _changeEmail),
-                  Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
-                  _buildActionRow(
-                    'Set / Change Password',
-                    _savingPassword ? 'Saving...' : '',
-                    onTap: _savingPassword ? () {} : _setPasswordDirectly,
-                  ),
-                  Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
-                  _buildActionRow('Send Password Reset Link', '', onTap: _resetPassword),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              decoration: BoxDecoration(color: _cardBg, borderRadius: BorderRadius.circular(16)),
-              child: _buildActionRow('Delete Account', '', onTap: _showDeleteAccountDialog, isDestructive: true, showChevron: false),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionRow(String label, String value, {required VoidCallback onTap, bool isDestructive = false, bool showChevron = true}) {
-    final labelColor = isDestructive ? const Color(0xFFEF4444) : Colors.white.withValues(alpha: 0.85);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: labelColor),
-              ),
-            ),
-            if (value.isNotEmpty) ...[
-              Text(
-                value,
-                style: TextStyle(fontSize: 15, color: Colors.white.withValues(alpha: 0.5)),
-              ),
-              const SizedBox(width: 8),
-            ],
-            if (showChevron)
-              Icon(Icons.chevron_right_rounded, size: 20, color: Colors.white.withValues(alpha: 0.35)),
           ],
         ),
       ),

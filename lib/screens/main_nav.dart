@@ -1,10 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/deep_link_handler.dart';
+import '../services/goal_service.dart';
 import '../services/group_invite_service.dart';
 import '../services/group_service.dart';
+import '../services/health_service.dart';
+import '../services/main_nav_service.dart';
+import '../services/push_prompt_service.dart';
 import '../services/selected_group_service.dart';
+import '../widgets/goal_complete_celebration.dart';
+import '../widgets/push_enable_prompt.dart';
 import 'group_screen.dart';
 import 'home_screen.dart';
 import 'leaderboard_screen.dart';
@@ -20,7 +28,7 @@ class MainNav extends StatefulWidget {
   State<MainNav> createState() => _MainNavState();
 }
 
-class _MainNavState extends State<MainNav> {
+class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
   static const Color _background = Color(0xFF0B0B0F);
   static const Color _accent = Color(0xFF3B82F6);
   static const Color _cardBg = Color(0xFF14141A);
@@ -28,33 +36,100 @@ class _MainNavState extends State<MainNav> {
   int _currentIndex = 0;
   bool _pendingInvitesChecked = false;
   final GroupInviteService _inviteService = GroupInviteService();
+  late final PageController _pageController;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    mainNavService.selectTab = _selectTab;
+    _pageController = PageController();
+    // Belt-and-suspenders: AuthGate hydrates first, but if Home mounts before
+    // that finishes, this shared future still fills selectedGroupService.
+    unawaited(selectedGroupService.hydrate());
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkPendingInvites();
-      _checkPendingLink();
+      unawaited(_runStartupModals());
     });
     DeepLinkHandler.pendingInviteCode.addListener(_onPendingInviteCodeChanged);
   }
 
   @override
   void dispose() {
-    DeepLinkHandler.pendingInviteCode.removeListener(_onPendingInviteCodeChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    if (mainNavService.selectTab == _selectTab) {
+      mainNavService.selectTab = null;
+    }
+    DeepLinkHandler.pendingInviteCode.removeListener(
+      _onPendingInviteCodeChanged,
+    );
+    _pageController.dispose();
     super.dispose();
+  }
+
+  void _selectTab(int index) {
+    if (index == _currentIndex) return;
+    setState(() => _currentIndex = index);
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 340),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _onPendingInviteCodeChanged() {
     if (DeepLinkHandler.pendingInviteCode.value != null) {
-      _checkPendingLink();
+      unawaited(_checkPendingLink());
     }
+  }
+
+  /// Invite dialogs first, then push opt-in, then daily goal celebration.
+  Future<void> _runStartupModals() async {
+    await _checkPendingInvites();
+    if (!mounted) return;
+    await _checkPendingLink();
+    if (!mounted) return;
+    await _maybeShowPushPrompt();
+    if (!mounted) return;
+    await _checkDailyGoalCelebration();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkDailyGoalCelebration());
+    }
+  }
+
+  Future<void> _checkDailyGoalCelebration() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || !mounted) return;
+    try {
+      goalService.reloadFromCurrentUser();
+      final today = await HealthService.getTodayMetrics();
+      if (!mounted) return;
+      if (!GoalCelebrationService.allGoalsComplete(today, goalService.goals)) {
+        return;
+      }
+      await goalCelebrationService.maybeCelebrate(
+        context,
+        userId: userId,
+        onKeepMoving: mainNavService.goToProfile,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _maybeShowPushPrompt() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || !mounted) return;
+    if (!await pushPromptService.shouldPrompt(userId)) return;
+    if (!mounted) return;
+    await showPushEnablePrompt(context, userId: userId);
   }
 
   Future<void> _checkPendingLink() async {
     final code = DeepLinkHandler.pendingInviteCode.value;
     if (code == null || code.isEmpty) return;
-    
+
     // Clear it so we don't process it again (even if cancelled)
     DeepLinkHandler.pendingInviteCode.value = null;
 
@@ -77,12 +152,18 @@ class _MainNavState extends State<MainNav> {
         ),
         content: Text(
           'You have an invite link. Do you want to join this group?',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 15),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.85),
+            fontSize: 15,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -99,7 +180,8 @@ class _MainNavState extends State<MainNav> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: _accent)),
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: _accent)),
     );
 
     try {
@@ -108,8 +190,8 @@ class _MainNavState extends State<MainNav> {
       Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
 
       selectedGroupService.addGroupAndSelect(result.groupId, result.groupName);
-      setState(() => _currentIndex = 3);
-      
+      _selectTab(3);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Joined ${result.groupName}!'),
@@ -120,11 +202,17 @@ class _MainNavState extends State<MainNav> {
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
-      
-      final msg = e.toString().replaceFirst('Exception: ', '').replaceFirst('AlreadyInGroup: ', '').replaceFirst('GroupNotFound: ', '');
+
+      final msg = e
+          .toString()
+          .replaceFirst('Exception: ', '')
+          .replaceFirst('AlreadyInGroup: ', '')
+          .replaceFirst('GroupNotFound: ', '');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(msg.contains('already') ? "You're already in this group." : msg),
+          content: Text(
+            msg.contains('already') ? "You're already in this group." : msg,
+          ),
           backgroundColor: const Color(0xFFEF4444),
           behavior: SnackBarBehavior.floating,
         ),
@@ -162,12 +250,18 @@ class _MainNavState extends State<MainNav> {
         ),
         content: Text(
           'You were invited to join $groupName.',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 15),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.85),
+            fontSize: 15,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Decline', style: TextStyle(color: Colors.white.withValues(alpha: 0.7))),
+            child: Text(
+              'Decline',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+            ),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -184,8 +278,11 @@ class _MainNavState extends State<MainNav> {
         try {
           final result = await _inviteService.acceptInvite(invite.id, user.id);
           if (!mounted) return;
-          selectedGroupService.addGroupAndSelect(result.groupId, result.groupName);
-          setState(() => _currentIndex = 3);
+          selectedGroupService.addGroupAndSelect(
+            result.groupId,
+            result.groupName,
+          );
+          _selectTab(3);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Joined ${result.groupName}!'),
@@ -197,7 +294,11 @@ class _MainNavState extends State<MainNav> {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(e.toString().contains('already') ? "You're already in this group." : 'Couldn\'t accept. Try again.'),
+              content: Text(
+                e.toString().contains('already')
+                    ? "You're already in this group."
+                    : 'Couldn\'t accept. Try again.',
+              ),
               backgroundColor: const Color(0xFFEF4444),
               behavior: SnackBarBehavior.floating,
             ),
@@ -211,25 +312,31 @@ class _MainNavState extends State<MainNav> {
     }
     final remaining = list.skip(1).toList();
     if (remaining.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showPendingInviteDialog(remaining));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _showPendingInviteDialog(remaining),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final screens = [
-      HomeScreen(
-        onSeeAllLeaderboard: () => setState(() => _currentIndex = 1),
-        onOpenGroupTab: () => setState(() => _currentIndex = 3),
+      _KeepAlive(
+        child: HomeScreen(
+          isActive: _currentIndex == 0,
+          onSeeAllLeaderboard: () => _selectTab(1),
+          onOpenGroupTab: () => _selectTab(3),
+        ),
       ),
-      const LeaderboardScreen(),
-      const ProfileScreen(),
-      const GroupScreen(),
-      const SettingsScreen(),
+      _KeepAlive(child: LeaderboardScreen(isActive: _currentIndex == 1)),
+      const _KeepAlive(child: ProfileScreen()),
+      const _KeepAlive(child: GroupScreen()),
+      const _KeepAlive(child: SettingsScreen()),
     ];
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: PageView(
+        controller: _pageController,
+        physics: const NeverScrollableScrollPhysics(),
         children: screens,
       ),
       bottomNavigationBar: Container(
@@ -245,35 +352,35 @@ class _MainNavState extends State<MainNav> {
                   icon: Icons.home_outlined,
                   selectedIcon: Icons.home,
                   selected: _currentIndex == 0,
-                  onTap: () => setState(() => _currentIndex = 0),
+                  onTap: () => _selectTab(0),
                 ),
                 _NavItem(
                   label: 'Leaderboard',
                   icon: Icons.leaderboard_outlined,
                   selectedIcon: Icons.leaderboard,
                   selected: _currentIndex == 1,
-                  onTap: () => setState(() => _currentIndex = 1),
+                  onTap: () => _selectTab(1),
                 ),
                 _NavItem(
                   label: 'Profile',
                   icon: Icons.person_outline,
                   selectedIcon: Icons.person,
                   selected: _currentIndex == 2,
-                  onTap: () => setState(() => _currentIndex = 2),
+                  onTap: () => _selectTab(2),
                 ),
                 _NavItem(
                   label: 'Group',
                   icon: Icons.group_outlined,
                   selectedIcon: Icons.group,
                   selected: _currentIndex == 3,
-                  onTap: () => setState(() => _currentIndex = 3),
+                  onTap: () => _selectTab(3),
                 ),
                 _NavItem(
                   label: 'Settings',
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings,
                   selected: _currentIndex == 4,
-                  onTap: () => setState(() => _currentIndex = 4),
+                  onTap: () => _selectTab(4),
                 ),
               ],
             ),
@@ -281,6 +388,27 @@ class _MainNavState extends State<MainNav> {
         ),
       ),
     );
+  }
+}
+
+class _KeepAlive extends StatefulWidget {
+  const _KeepAlive({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAlive> createState() => _KeepAliveState();
+}
+
+class _KeepAliveState extends State<_KeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 
@@ -311,18 +439,29 @@ class _NavItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              selected ? selectedIcon : icon,
-              size: 24,
-              color: selected ? _accent : Colors.white54,
+            AnimatedScale(
+              scale: selected ? 1.12 : 1,
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Icon(
+                  selected ? selectedIcon : icon,
+                  key: ValueKey(selected),
+                  size: 24,
+                  color: selected ? _accent : Colors.white54,
+                ),
+              ),
             ),
             const SizedBox(height: 4),
-            Text(
-              label,
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 220),
               style: TextStyle(
                 fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 color: selected ? _accent : Colors.white54,
               ),
+              child: Text(label),
             ),
           ],
         ),

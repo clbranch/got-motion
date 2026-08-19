@@ -19,4 +19,11 @@ class TodayMetrics {
     activeEnergyCalories: 0,
     exerciseMinutes: 0,
   );
+
+  TodayMetrics operator +(TodayMetrics other) => TodayMetrics(
+    steps: steps + other.steps,
+    distanceMiles: distanceMiles + other.distanceMiles,
+    activeEnergyCalories: activeEnergyCalories + other.activeEnergyCalories,
+    exerciseMinutes: exerciseMinutes + other.exerciseMinutes,
+  );
 }

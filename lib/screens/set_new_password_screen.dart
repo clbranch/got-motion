@@ -4,10 +4,7 @@ import '../services/auth_service.dart';
 
 /// SetNewPasswordScreen: enter new password + confirm + submit. Only shown when app is opened from recovery email link.
 class SetNewPasswordScreen extends StatefulWidget {
-  const SetNewPasswordScreen({
-    super.key,
-    required this.onPasswordSet,
-  });
+  const SetNewPasswordScreen({super.key, required this.onPasswordSet});
 
   final VoidCallback onPasswordSet;
 
@@ -49,7 +46,9 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
       } else {
         _success = true;
         // ignore: avoid_print
-        print('[Auth] password reset success -> show success state, then Continue -> sign out -> Login');
+        print(
+          '[Auth] password reset success -> show success state, then Continue -> sign out -> Login',
+        );
       }
     });
   }
@@ -89,9 +88,7 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
           ),
         ),
       ),
-      body: SafeArea(
-        child: _success ? _buildSuccessView() : _buildFormView(),
-      ),
+      body: SafeArea(child: _success ? _buildSuccessView() : _buildFormView()),
     );
   }
 
@@ -123,7 +120,10 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
               style: FilledButton.styleFrom(
                 backgroundColor: _accent,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 16,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -162,7 +162,8 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
                       if (v == null || v.isEmpty) return 'Enter a password';
-                      if (v.length < 6) return 'Password must be at least 6 characters';
+                      if (v.length < 6)
+                        return 'Password must be at least 6 characters';
                       return null;
                     },
                     onChanged: (_) => _clearError(),
@@ -175,8 +176,10 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
                     decoration: _inputDecoration('Confirm new password'),
                     style: const TextStyle(color: Colors.white),
                     validator: (v) {
-                      if (v == null || v.isEmpty) return 'Confirm your password';
-                      if (v != _passwordController.text) return 'Passwords do not match';
+                      if (v == null || v.isEmpty)
+                        return 'Confirm your password';
+                      if (v != _passwordController.text)
+                        return 'Passwords do not match';
                       return null;
                     },
                     onChanged: (_) => _clearError(),

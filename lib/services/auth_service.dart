@@ -1,5 +1,4 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'selected_group_service.dart';
 import 'supabase_service.dart';
@@ -50,7 +49,8 @@ class AuthService {
         password: password,
         data: {
           'display_name': displayName,
-          'name': displayName, // Fallback for some auth providers or default mappings
+          'name':
+              displayName, // Fallback for some auth providers or default mappings
         },
         emailRedirectTo: emailRedirectTo ?? authCallbackDeepLink,
       );
@@ -77,6 +77,45 @@ class AuthService {
     }
   }
 
+  /// Permanently deletes the current user via Edge Function (cascades app data).
+  /// Returns error message on failure.
+  static Future<String?> deleteAccount() async {
+    try {
+      final session = _auth.currentSession;
+      if (session == null) return 'Not signed in';
+
+      final response = await SupabaseService.client.functions.invoke(
+        'delete-account',
+      );
+      final status = response.status;
+      if (status >= 400) {
+        final data = response.data;
+        if (data is Map && data['error'] != null) {
+          return data['error'].toString();
+        }
+        return 'Could not delete account ($status)';
+      }
+
+      selectedGroupService.clear();
+      try {
+        await _auth.signOut();
+      } catch (_) {
+        // Session may already be invalid after delete.
+      }
+      return null;
+    } on FunctionException catch (e) {
+      final details = e.details;
+      if (details is Map && details['error'] != null) {
+        return details['error'].toString();
+      }
+      return e.reasonPhrase ?? 'Could not delete account';
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
   /// Sign out. Session is cleared; auth state listener will send user to Auth screen.
   static Future<void> signOut() async {
     selectedGroupService.clear();
@@ -85,7 +124,6 @@ class AuthService {
 
   /// Sends a password reset email. Uses [authCallbackDeepLink] for redirect after reset.
   /// Returns error message on failure.
-  /// Future: in-app OTP/code verification can be added via Supabase Auth (e.g. verifyOtp) without changing this flow.
   static Future<String?> resetPasswordForEmail({
     required String email,
     String? redirectTo,

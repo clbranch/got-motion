@@ -1,46 +1,115 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href="$FLUTTER_BASE_HREF">
-
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
-
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="got_motion">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-
-  <title>got_motion</title>
-  <link rel="manifest" href="manifest.json">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Got Motion — Compete with friends. Stay in motion.</title>
+  <meta name="description" content="Got Motion turns daily steps and activity into friendly group competition. Sync Apple Health, climb the leaderboard, and stay in motion with your crew." />
+  <meta property="og:title" content="Got Motion" />
+  <meta property="og:description" content="Compete with friends. Stay in motion." />
+  <meta property="og:image" content="/assets/hero-friends-motion.jpg" />
+  <link rel="icon" href="/assets/app_icon_rounded.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <header class="top">
+    <a class="brand" href="/">
+      <img src="/assets/motion_mark.png" alt="" width="36" height="36" />
+      <span>Got Motion</span>
+    </a>
+    <nav>
+      <a href="#preview">The app</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/support.html">Support</a>
+    </nav>
+  </header>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
-  <script src="flutter_bootstrap.js" async></script>
+  <main>
+    <section class="hero">
+      <div class="hero-media" aria-hidden="true">
+        <img src="/assets/hero-friends-motion.jpg" alt="" />
+        <div class="hero-shade"></div>
+      </div>
+      <div class="hero-copy">
+        <p class="eyebrow">Group fitness competition</p>
+        <h1>Got Motion</h1>
+        <p class="lede">Compete with friends. Stay in motion.</p>
+        <p class="sub">
+          Sync Apple Health, climb private group leaderboards, and keep each other moving —
+          with nudges that talk about motion, not spam.
+        </p>
+      </div>
+    </section>
+
+    <section class="preview" id="preview">
+      <div class="preview-copy">
+        <h2>Built for the crew that moves together</h2>
+        <p>
+          Create a group, invite friends, and compete on steps, miles, active calories, and exercise.
+          Your progress. Their progress. One board.
+        </p>
+        <ul>
+          <li>Apple Health sync for real daily activity</li>
+          <li>Private groups and invite codes</li>
+          <li>Leaderboards and category leaders</li>
+          <li>Motion-first notifications you control</li>
+        </ul>
+      </div>
+      <div class="phones" aria-label="App preview">
+        <article class="phone phone-a">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <p class="screen-kicker">Today</p>
+            <p class="screen-metric">8,420</p>
+            <p class="screen-unit">steps</p>
+            <div class="bars">
+              <span style="--h:42%"></span>
+              <span style="--h:68%"></span>
+              <span style="--h:55%"></span>
+              <span style="--h:88%"></span>
+              <span style="--h:74%"></span>
+              <span style="--h:61%"></span>
+              <span class="on" style="--h:96%"></span>
+            </div>
+            <p class="screen-foot">Mighty Ducks · 2nd place</p>
+          </div>
+        </article>
+        <article class="phone phone-b">
+          <div class="phone-notch"></div>
+          <div class="phone-screen">
+            <p class="screen-kicker">Leaderboard</p>
+            <ol class="board">
+              <li><span>1</span><b>Jay</b><em>12.4k</em></li>
+              <li class="you"><span>2</span><b>You</b><em>8.4k</em></li>
+              <li><span>3</span><b>Adrian</b><em>7.1k</em></li>
+              <li><span>4</span><b>Q</b><em>6.2k</em></li>
+            </ol>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="strip">
+      <p>Available on the App Store for iPhone.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="foot-brand">
+      <img src="/assets/motion_mark.png" alt="" width="28" height="28" />
+      <strong>Got Motion</strong>
+    </div>
+    <div class="foot-links">
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/support.html">Support</a>
+    </div>
+    <p class="legal">© <span id="y"></span> Brogrammers Agency, Inc.</p>
+  </footer>
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>

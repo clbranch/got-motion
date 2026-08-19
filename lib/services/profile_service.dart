@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'avatar_image.dart';
+
 /// Profile row for display and edit.
 class ProfileData {
   const ProfileData({
@@ -91,7 +93,10 @@ class ProfileService {
     final updates = <String, dynamic>{
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
-    if (displayName != null) updates['display_name'] = displayName.trim().isEmpty ? null : displayName.trim();
+    if (displayName != null)
+      updates['display_name'] = displayName.trim().isEmpty
+          ? null
+          : displayName.trim();
     if (avatarUrl != null) updates['avatar_url'] = avatarUrl;
     if (avatarSource != null && avatarSource.trim().isNotEmpty) {
       updates['avatar_source'] = avatarSource.trim();
@@ -100,26 +105,23 @@ class ProfileService {
   }
 
   /// Uploads a file as the user's avatar. Returns the public URL to store in profile.
-  /// Path: {user_id}/avatar.{ext}
+  /// Path: {user_id}/avatar.jpg
   Future<String> uploadAvatar(File file) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) throw StateError('Not signed in');
-    final ext = _extensionFor(file.path);
-    final path = '$userId/avatar$ext';
-    await _supabase.storage.from('avatars').upload(
+    final bytes = await AvatarImage.prepare(file);
+    final path = '$userId/avatar${AvatarImage.extension}';
+    await _supabase.storage
+        .from('avatars')
+        .uploadBinary(
           path,
-          file,
-          fileOptions: const FileOptions(upsert: true),
+          bytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            contentType: AvatarImage.contentType,
+          ),
         );
-    final url = _supabase.storage.from('avatars').getPublicUrl(path);
-    return url;
-  }
-
-  static String _extensionFor(String path) {
-    final lower = path.toLowerCase();
-    if (lower.endsWith('.png')) return '.png';
-    if (lower.endsWith('.webp')) return '.webp';
-    if (lower.endsWith('.gif')) return '.gif';
-    return '.jpg';
+    final base = _supabase.storage.from('avatars').getPublicUrl(path);
+    return '$base?v=${DateTime.now().millisecondsSinceEpoch}';
   }
 }

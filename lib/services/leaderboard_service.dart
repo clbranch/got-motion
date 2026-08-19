@@ -58,22 +58,20 @@ class LeaderboardService {
 
     // 3. Determine date filter
     DateTime now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     DateTime startDate;
-    if (range == 'Today') {
-      startDate = DateTime(now.year, now.month, now.day);
-    } else if (range == 'This Week') {
-      // Week starts on Monday
-      startDate = DateTime(
-        now.year,
-        now.month,
-        now.day,
-      ).subtract(Duration(days: now.weekday - 1));
-    } else if (range == 'This Month') {
+    final normalized = _normalizeRange(range);
+    if (normalized == 'Today') {
+      startDate = today;
+    } else if (normalized == 'This Week') {
+      startDate = today.subtract(Duration(days: now.weekday - 1));
+    } else if (normalized == 'This Month') {
       startDate = DateTime(now.year, now.month, 1);
     } else {
-      startDate = DateTime(2000); // Fallback to all time
+      startDate = today;
     }
     final startDateStr = startDate.toIso8601String().split('T').first;
+    final todayStr = today.toIso8601String().split('T').first;
 
     // 4. Fetch daily_steps for these users within the date range
     var stepsQuery = _supabase
@@ -81,7 +79,7 @@ class LeaderboardService {
         .select()
         .inFilter('user_id', userIds);
     final stepsResponse = date == null
-        ? await stepsQuery.gte('date', startDateStr)
+        ? await stepsQuery.gte('date', startDateStr).lte('date', todayStr)
         : await stepsQuery.eq('date', date.toIso8601String().split('T').first);
 
     final stepsData = List<Map<String, dynamic>>.from(stepsResponse);
@@ -161,5 +159,29 @@ class LeaderboardService {
     }
 
     return results;
+  }
+
+  static String _normalizeRange(String range) {
+    switch (range) {
+      case 'Week':
+      case 'This Week':
+        return 'This Week';
+      case 'Month':
+      case 'This Month':
+        return 'This Month';
+      default:
+        return 'Today';
+    }
+  }
+
+  static bool isCurrentUserRow(
+    Map<String, dynamic> row, {
+    String? userId,
+    String? email,
+  }) {
+    final rowUserId = row['user_id']?.toString();
+    final rowEmail = row['email']?.toString().toLowerCase();
+    return (userId != null && rowUserId == userId) ||
+        (email != null && rowEmail == email);
   }
 }

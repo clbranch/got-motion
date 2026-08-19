@@ -3,14 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/app_boot.dart';
 import '../services/deep_link_handler.dart';
 import '../services/auth_profile_sync_service.dart';
+import '../services/notification_service.dart';
+import '../services/push_notification_service.dart';
+import '../services/selected_group_service.dart';
 import '../services/supabase_service.dart';
+import '../services/sync_activity_service.dart';
 import 'create_account_screen.dart';
 import 'login_screen.dart';
 import 'main_nav.dart';
 import 'reset_password_screen.dart';
 import 'set_new_password_screen.dart';
+import 'splash_screen.dart';
 
 /// Shows MainNav when user has a session; Set New Password when session came from reset link;
 /// otherwise a Navigator with Login, Create Account, Reset Password screens.
@@ -23,7 +29,8 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
-  final AuthProfileSyncService _authProfileSyncService = AuthProfileSyncService();
+  final AuthProfileSyncService _authProfileSyncService =
+      AuthProfileSyncService();
   bool _isLoggedIn = false;
   bool _initialized = false;
   bool _pendingPasswordSet = false;
@@ -41,24 +48,85 @@ class _AuthGateState extends State<AuthGate> {
   void _onAuthStateChange(AuthState data) {
     final isRecovery = data.event == AuthChangeEvent.passwordRecovery;
     // ignore: avoid_print
-    print('[Auth] onAuthStateChange: event=${data.event.name} session=${data.session != null} isRecovery=$isRecovery');
-    if (mounted) {
-      setState(() {
-        _isLoggedIn = data.session != null;
-        if (isRecovery) {
+    print(
+      '[Auth] onAuthStateChange: event=${data.event.name} session=${data.session != null} isRecovery=$isRecovery',
+    );
+    if (isRecovery) {
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = data.session != null;
           _pendingPasswordSet = true;
-          // ignore: avoid_print
-          print('[Auth] onAuthStateChange: recovery callback -> SetNewPasswordScreen (not ForgotPasswordScreen)');
-        } else if (data.event == AuthChangeEvent.signedIn) {
-          // Defensive: clear any stale recovery state on normal sign-in so we
-          // always route to MainNav after OAuth/email login.
-          _pendingPasswordSet = false;
-        }
-      });
+        });
+      }
+      return;
     }
+
     if (data.event == AuthChangeEvent.signedIn && data.session != null) {
-      _syncProfileFromAuth();
+      // Load groups before MainNav paints so Home does not flash "Choose a group".
+      unawaited(_prepareSignedIn());
+      return;
     }
+
+    if (data.event == AuthChangeEvent.signedOut) {
+      selectedGroupService.clear();
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = false;
+          _pendingPasswordSet = false;
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _isLoggedIn = data.session != null);
+    }
+  }
+
+  Future<void> _prepareSignedIn() async {
+    await Future.wait([
+      selectedGroupService.hydrate(),
+      _syncProfileFromAuth(),
+      syncActivityService.hydrate(),
+      pushNotificationService.ensureHandlers(),
+    ]);
+    unawaited(notificationService.refresh());
+    if (!mounted) return;
+    setState(() {
+      _isLoggedIn = true;
+      _pendingPasswordSet = false;
+      _initialized = true;
+    });
+  }
+
+  Future<void> _checkSession() async {
+    final wasRecoveryFromLink = await _handleInitialLink();
+    if (!mounted) return;
+    final session = SupabaseService.client.auth.currentSession;
+
+    // Hydrate membership while the splash is still up so Home opens with a
+    // selected group instead of "Choose a group".
+    if (session != null) {
+      await Future.wait([
+        selectedGroupService.hydrate(),
+        _syncProfileFromAuth(),
+        syncActivityService.hydrate(),
+        pushNotificationService.ensureHandlers(),
+      ]);
+      unawaited(notificationService.refresh());
+    }
+
+    AppBoot.markReady();
+    if (!mounted) return;
+    setState(() {
+      _isLoggedIn = session != null;
+      _initialized = true;
+      _pendingPasswordSet = _pendingPasswordSet || wasRecoveryFromLink;
+    });
+    // ignore: avoid_print
+    print(
+      '[Auth] _checkSession: session=${session != null}, wasRecoveryFromLink=$wasRecoveryFromLink -> _pendingPasswordSet=${_pendingPasswordSet}',
+    );
   }
 
   @override
@@ -71,13 +139,17 @@ class _AuthGateState extends State<AuthGate> {
   Future<bool> _handleInitialLink() async {
     Uri? uri = await DeepLinkHandler.getInitialUri();
     // ignore: avoid_print
-    print('[Auth] getInitialUri: ${uri != null ? "got uri (${uri.toString().length} chars)" : "null"}');
+    print(
+      '[Auth] getInitialUri: ${uri != null ? "got uri (${uri.toString().length} chars)" : "null"}',
+    );
     if (uri == null) {
       await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return false;
       uri = await DeepLinkHandler.getInitialUri();
       // ignore: avoid_print
-      print('[Auth] getInitialUri after delay: ${uri != null ? "got uri" : "still null"}');
+      print(
+        '[Auth] getInitialUri after delay: ${uri != null ? "got uri" : "still null"}',
+      );
     }
     if (uri == null) return false;
 
@@ -96,8 +168,10 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _onLink(Uri uri) async {
     // ignore: avoid_print
-    print('[Auth] _onLink (warm): ${uri.toString().length > 60 ? "uri received" : uri}');
-    
+    print(
+      '[Auth] _onLink (warm): ${uri.toString().length > 60 ? "uri received" : uri}',
+    );
+
     final inviteCode = DeepLinkHandler.extractInviteCode(uri);
     if (inviteCode != null) {
       DeepLinkHandler.pendingInviteCode.value = inviteCode;
@@ -109,25 +183,10 @@ class _AuthGateState extends State<AuthGate> {
     if (mounted && isRecoveryHandled) {
       setState(() => _pendingPasswordSet = true);
       // ignore: avoid_print
-      print('[Auth] _onLink: set _pendingPasswordSet=true, navigating to SetNewPasswordScreen');
+      print(
+        '[Auth] _onLink: set _pendingPasswordSet=true, navigating to SetNewPasswordScreen',
+      );
     }
-  }
-
-  Future<void> _checkSession() async {
-    final wasRecoveryFromLink = await _handleInitialLink();
-    if (!mounted) return;
-    final session = SupabaseService.client.auth.currentSession;
-    setState(() {
-      _isLoggedIn = session != null;
-      _initialized = true;
-      // Never clear _pendingPasswordSet if already set by onAuthStateChange (passwordRecovery).
-      _pendingPasswordSet = _pendingPasswordSet || wasRecoveryFromLink;
-    });
-    if (session != null) {
-      _syncProfileFromAuth();
-    }
-    // ignore: avoid_print
-    print('[Auth] _checkSession: session=${session != null}, wasRecoveryFromLink=$wasRecoveryFromLink -> _pendingPasswordSet=${_pendingPasswordSet}');
   }
 
   Future<void> _syncProfileFromAuth() async {
@@ -141,17 +200,15 @@ class _AuthGateState extends State<AuthGate> {
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0B0B0F),
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF3B82F6)),
-        ),
-      );
+      // Matches the splash overlay so a slow boot never cuts to a bare spinner.
+      return const SplashScreen();
     }
     if (_pendingPasswordSet) {
       // Recovery email callback: always go to Set New Password (enter new + confirm), never to request/success screen.
       // ignore: avoid_print
-      print('[Auth] build: recovery flow -> SetNewPasswordScreen (source: recovery email callback)');
+      print(
+        '[Auth] build: recovery flow -> SetNewPasswordScreen (source: recovery email callback)',
+      );
       return SetNewPasswordScreen(
         // Called after user taps Continue on success. SetNewPasswordScreen signs out first, then calls this.
         // Navigation to Login: we clear _pendingPasswordSet here; signOut makes _isLoggedIn false -> build shows Login.
@@ -159,7 +216,9 @@ class _AuthGateState extends State<AuthGate> {
         onPasswordSet: () {
           setState(() => _pendingPasswordSet = false);
           // ignore: avoid_print
-          print('[Auth] build: after reset complete -> route to Login (user signs in with new password)');
+          print(
+            '[Auth] build: after reset complete -> route to Login (user signs in with new password)',
+          );
         },
       );
     }
@@ -170,7 +229,9 @@ class _AuthGateState extends State<AuthGate> {
     }
     // Manual flow: Login first; ForgotPasswordScreen only via "Forgot password?" tap.
     // ignore: avoid_print
-    print('[Auth] build: no session -> Login; ForgotPasswordScreen only via manual "Forgot password?"');
+    print(
+      '[Auth] build: no session -> Login; ForgotPasswordScreen only via manual "Forgot password?"',
+    );
     return Navigator(
       initialRoute: '/login',
       onGenerateRoute: (settings) {
@@ -188,7 +249,9 @@ class _AuthGateState extends State<AuthGate> {
           case '/reset-password':
             // ForgotPasswordScreen = request reset email + "Check your email" success. Only reached from Login "Forgot password?".
             // ignore: avoid_print
-            print('[Auth] Navigator: opening ForgotPasswordScreen (request/success) - manual flow only');
+            print(
+              '[Auth] Navigator: opening ForgotPasswordScreen (request/success) - manual flow only',
+            );
             return MaterialPageRoute<void>(
               builder: (_) => const ResetPasswordScreen(),
               settings: settings,

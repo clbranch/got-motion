@@ -3,11 +3,7 @@ import '../models/motion_stats.dart';
 
 /// Single leaderboard row: rank, name, steps (emphasized), miles, calories, minutes.
 class LeaderboardCard extends StatelessWidget {
-  const LeaderboardCard({
-    super.key,
-    required this.rank,
-    required this.stats,
-  });
+  const LeaderboardCard({super.key, required this.rank, required this.stats});
 
   static const Color _cardBackground = Color(0xFF14141A);
   static const Color _accent = Color(0xFF3B82F6);
@@ -48,7 +44,8 @@ class LeaderboardCard extends StatelessWidget {
           CircleAvatar(
             radius: 20,
             backgroundColor: Colors.white.withValues(alpha: 0.1),
-            backgroundImage: (stats.avatarUrl != null && stats.avatarUrl!.isNotEmpty)
+            backgroundImage:
+                (stats.avatarUrl != null && stats.avatarUrl!.isNotEmpty)
                 ? NetworkImage(stats.avatarUrl!)
                 : null,
             child: (stats.avatarUrl == null || stats.avatarUrl!.isEmpty)
@@ -102,11 +99,11 @@ class LeaderboardCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    _statChip('${stats.miles.toStringAsFixed(1)} mi'),
+                    _statChip('${stats.miles.toStringAsFixed(1)} MI'),
                     const SizedBox(width: 8),
-                    _statChip('${stats.activeCalories} cal'),
+                    _statChip('${stats.activeCalories} CAL'),
                     const SizedBox(width: 8),
-                    _statChip('${stats.exerciseMinutes} min'),
+                    _statChip('${stats.exerciseMinutes} MIN'),
                   ],
                 ),
               ],
@@ -123,7 +120,9 @@ class LeaderboardCard extends StatelessWidget {
       height: 36,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: rank <= 3 ? _accent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.08),
+        color: rank <= 3
+            ? _accent.withValues(alpha: 0.2)
+            : Colors.white.withValues(alpha: 0.08),
         shape: BoxShape.circle,
       ),
       child: Text(

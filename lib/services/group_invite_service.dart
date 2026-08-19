@@ -73,7 +73,9 @@ class GroupInviteService {
     if (email.isEmpty) throw ArgumentError('Email is required');
     final token = _generateInviteToken();
     // ignore: avoid_print
-    print('[GroupInviteService] createInvite: invitedBy=$invitedBy, groupId=$groupId, invitedEmail=$email, invite_token=${token.substring(0, 8)}...');
+    print(
+      '[GroupInviteService] createInvite: invitedBy=$invitedBy, groupId=$groupId, invitedEmail=$email, invite_token=${token.substring(0, 8)}...',
+    );
     try {
       final response = await _supabase
           .from('group_invites')
@@ -86,13 +88,19 @@ class GroupInviteService {
           })
           .select()
           .single();
-      final record = GroupInviteRecord.fromMap(Map<String, dynamic>.from(response as Map));
+      final record = GroupInviteRecord.fromMap(
+        Map<String, dynamic>.from(response as Map),
+      );
       // ignore: avoid_print
-      print('[GroupInviteService] createInvite success: id=${record.id} (invite DB row created)');
+      print(
+        '[GroupInviteService] createInvite success: id=${record.id} (invite DB row created)',
+      );
       return record;
     } on PostgrestException catch (e) {
       // ignore: avoid_print
-      print('[GroupInviteService] createInvite PostgrestException: ${e.message}');
+      print(
+        '[GroupInviteService] createInvite PostgrestException: ${e.message}',
+      );
       if (e.code == '23505' ||
           e.message.contains('unique') ||
           e.message.contains('duplicate')) {
@@ -106,7 +114,9 @@ class GroupInviteService {
   /// Returns true if email was sent, false if send failed (invite row still exists).
   Future<bool> sendInviteEmail(String inviteId) async {
     // ignore: avoid_print
-    print('[GroupInviteService] sendInviteEmail: attempting outbound email for invite_id=$inviteId');
+    print(
+      '[GroupInviteService] sendInviteEmail: attempting outbound email for invite_id=$inviteId',
+    );
     try {
       final res = await _supabase.functions.invoke(
         'send-invite-email',
@@ -118,24 +128,32 @@ class GroupInviteService {
         return true;
       }
       // ignore: avoid_print
-      print('[GroupInviteService] sendInviteEmail: email send failed status=${res.status} body=${res.data}');
+      print(
+        '[GroupInviteService] sendInviteEmail: email send failed status=${res.status} body=${res.data}',
+      );
       return false;
     } catch (e) {
       // ignore: avoid_print
-      print('[GroupInviteService] sendInviteEmail: exception (email send failed) $e');
+      print(
+        '[GroupInviteService] sendInviteEmail: exception (email send failed) $e',
+      );
       return false;
     }
   }
 
   /// Fetches pending invites for the given email (e.g. current user's auth email).
   /// group_name may be null if RLS blocks reading the group before the user joins.
-  Future<List<GroupInviteRecord>> fetchPendingInvitesForEmail(String email) async {
+  Future<List<GroupInviteRecord>> fetchPendingInvitesForEmail(
+    String email,
+  ) async {
     final normalized = email.trim().toLowerCase();
     if (normalized.isEmpty) return [];
     try {
       final response = await _supabase
           .from('group_invites')
-          .select('id, group_id, invited_email, invited_by, invite_token, status, created_at, accepted_at, groups(name)')
+          .select(
+            'id, group_id, invited_email, invited_by, invite_token, status, created_at, accepted_at, groups(name)',
+          )
           .eq('invited_email', normalized)
           .eq('status', 'pending')
           .order('created_at', ascending: false);
@@ -151,7 +169,9 @@ class GroupInviteService {
       try {
         final response = await _supabase
             .from('group_invites')
-            .select('id, group_id, invited_email, invited_by, invite_token, status, created_at, accepted_at')
+            .select(
+              'id, group_id, invited_email, invited_by, invite_token, status, created_at, accepted_at',
+            )
             .eq('invited_email', normalized)
             .eq('status', 'pending')
             .order('created_at', ascending: false);
@@ -213,7 +233,9 @@ class GroupInviteService {
         .eq('id', inviteId);
 
     // ignore: avoid_print
-    print('[GroupInviteService] acceptInvite success: userId=$userId, groupId=$groupId');
+    print(
+      '[GroupInviteService] acceptInvite success: userId=$userId, groupId=$groupId',
+    );
 
     String groupName = 'Group';
     try {
@@ -223,7 +245,8 @@ class GroupInviteService {
           .eq('id', groupId)
           .limit(1);
       final gList = List<Map<String, dynamic>>.from(groupRows);
-      if (gList.isNotEmpty) groupName = gList.single['name']?.toString() ?? groupName;
+      if (gList.isNotEmpty)
+        groupName = gList.single['name']?.toString() ?? groupName;
     } catch (_) {}
 
     return (groupId: groupId, groupName: groupName);

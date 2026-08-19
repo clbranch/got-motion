@@ -14,7 +14,7 @@ class DeepLinkHandler {
   /// Scheme and host for auth callback. Must match [AuthService.authCallbackDeepLink].
   static const String authCallbackScheme = 'gotmotion';
   static const String authCallbackHost = 'auth-callback';
-  
+
   /// Host for join group links.
   static const String joinHost = 'join';
 
@@ -46,14 +46,16 @@ class DeepLinkHandler {
   static bool isRecoveryCallback(Uri uri) {
     final fragment = uri.fragment;
     if (fragment.isNotEmpty) {
-      if (fragment.contains('type=recovery') || fragment.contains('type%3Drecovery')) {
+      if (fragment.contains('type=recovery') ||
+          fragment.contains('type%3Drecovery')) {
         return true;
       }
       final params = Uri.splitQueryString(fragment);
       if (params['type'] == _recoveryType) return true;
     }
     if (uri.queryParameters['type'] == _recoveryType) return true;
-    if (uri.toString().contains('type=recovery') || uri.toString().contains('type%3Drecovery')) {
+    if (uri.toString().contains('type=recovery') ||
+        uri.toString().contains('type%3Drecovery')) {
       return true;
     }
     return false;
@@ -74,12 +76,16 @@ class DeepLinkHandler {
     // can throw a JSON parse error and cause blank-screen behavior.
     if (!isRecovery && hasOAuthCode) {
       // ignore: avoid_print
-      print('[Auth] handleAuthCallback: oauth code callback detected, skipping recoverSession');
+      print(
+        '[Auth] handleAuthCallback: oauth code callback detected, skipping recoverSession',
+      );
       return false;
     }
 
     // ignore: avoid_print
-    print('[Auth] handleAuthCallback: recovery=${isRecovery} (recovery email callback -> SetNewPasswordScreen) uri=${uri.toString().length > 80 ? '${uri.toString().substring(0, 80)}...' : uri}');
+    print(
+      '[Auth] handleAuthCallback: recovery=${isRecovery} (recovery email callback -> SetNewPasswordScreen) uri=${uri.toString().length > 80 ? '${uri.toString().substring(0, 80)}...' : uri}',
+    );
     try {
       await SupabaseService.client.auth.recoverSession(uri.toString());
       // ignore: avoid_print
