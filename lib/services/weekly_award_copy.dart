@@ -87,6 +87,34 @@ class WeeklyAwardCopy {
         .join(', ');
     return 'You led $groupName in $lines. Keep that motion going.';
   }
+
+  static String groupRecapTitle(String groupName) =>
+      'Last week in $groupName';
+
+  static String groupRecapBody({
+    required String groupName,
+    required List<WeeklyAwardWinner> winners,
+  }) {
+    if (winners.isEmpty) {
+      return 'Last week\'s board is up in $groupName. Open Group and get after this week.';
+    }
+    final byUser = <String, List<WeeklyAwardWinner>>{};
+    for (final w in winners) {
+      byUser.putIfAbsent(w.userId, () => []).add(w);
+    }
+    if (byUser.length == 1) {
+      final only = winners.first;
+      if (sweptAllCategories(winners)) {
+        return '${only.displayName} swept last week in $groupName. '
+            'Open Group — new week starts now.';
+      }
+      final cats = winners.map((w) => w.category.cardTitle.toLowerCase()).join(' and ');
+      return '${only.displayName} took $cats in $groupName last week. '
+          'Open Group to see the board.';
+    }
+    return 'Last week\'s leaders are up in $groupName. '
+        'Open Group to see who took it — then get after this week.';
+  }
 }
 
 extension WeeklyAwardCopyCategory on WeeklyAwardCategory {

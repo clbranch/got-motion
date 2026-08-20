@@ -122,6 +122,7 @@ workout windows, plus at most **1–2** group-activity checks.
 | Group activity #1 | `push-group-motion` | `0 15 * * *` | 11:00am |
 | Group activity #2 | `push-group-motion` | `0 20 * * *` | 4:00pm |
 | Evening catch-up | `push-evening` | `0 22 * * *` | 6:00pm |
+| Weekly awards | `push-weekly-awards` | `0 12 * * 1` | Monday 8:00am |
 
 Each job: **POST**, header `x-cron-secret: <CRON_SECRET>`.
 
@@ -142,7 +143,7 @@ four rows above. Skip any hourly schedule.
 | Test / manual push | `supabase/functions/send-push` |
 | Morning job | `supabase/functions/push-morning` |
 | Evening catch-up job | `supabase/functions/push-evening` |
-| Group “already moving” job | `supabase/functions/push-group-motion` |
+| Weekly Monday awards | `supabase/functions/push-weekly-awards` |
 | App opt-in + token storage | already in the Flutter app |
 | In-app Notification Center | already working |
 

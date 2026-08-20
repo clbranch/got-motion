@@ -117,13 +117,13 @@ export function weeklyAwardPushBody(opts: {
     const formatted = formatWeeklyValue(category, value);
     switch (category) {
       case "steps":
-        return `You led ${groupName} in steps — ${formatted}. Nobody else came close.`;
+        return `You led ${groupName} in steps last week — ${formatted}. Nobody else came close.`;
       case "calories":
-        return `Most active calories in ${groupName} — ${formatted}. You burned it up.`;
+        return `Most active calories in ${groupName} last week — ${formatted}. You burned it up.`;
       case "exercise":
-        return `Most exercise minutes in ${groupName} — ${formatted}. You really moved that weight.`;
+        return `Most exercise minutes in ${groupName} last week — ${formatted}. You really moved that weight.`;
       case "miles":
-        return `Most miles in ${groupName} — ${formatted}. You ran circles around everyone.`;
+        return `Most miles in ${groupName} last week — ${formatted}. You ran circles around everyone.`;
     }
   }
   const lines = categories
@@ -133,6 +133,41 @@ export function weeklyAwardPushBody(opts: {
     })
     .join(", ");
   return `You led ${groupName} in ${lines}. Keep that motion going.`;
+}
+
+export function groupWeeklyRecapTitle(groupName: string): string {
+  const name = groupName.trim() || "your group";
+  return `Last week in ${name}`;
+}
+
+export type WeeklyRecapWinner = {
+  userId: string;
+  displayName: string;
+  category: "steps" | "calories" | "exercise" | "miles";
+  value: number;
+};
+
+export function groupWeeklyRecapBody(opts: {
+  groupName: string;
+  winners: WeeklyRecapWinner[];
+}): string {
+  const group = opts.groupName.trim() || "your group";
+  const winners = opts.winners;
+  if (winners.length === 0) {
+    return `Last week's board is up in ${group}. Open Group and get after this week.`;
+  }
+  const userIds = [...new Set(winners.map((w) => w.userId))];
+  if (userIds.length === 1) {
+    const name = winners[0]!.displayName;
+    if (winners.length >= 4) {
+      return `${name} swept last week in ${group}. Open Group — new week starts now.`;
+    }
+    const cats = winners
+      .map((w) => weeklyAwardTitles[w.category].toLowerCase())
+      .join(" and ");
+    return `${name} took ${cats} in ${group} last week. Open Group to see the board.`;
+  }
+  return `Last week's leaders are up in ${group}. Open Group to see who took it — then get after this week.`;
 }
 
 export function someoneMovingLine(opts: {

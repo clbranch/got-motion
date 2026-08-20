@@ -42,7 +42,7 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    mainNavService.selectTab = _selectTab;
+    mainNavService.bind(_selectTab);
     _pageController = PageController();
     // Belt-and-suspenders: AuthGate hydrates first, but if Home mounts before
     // that finishes, this shared future still fills selectedGroupService.
@@ -56,9 +56,7 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (mainNavService.selectTab == _selectTab) {
-      mainNavService.selectTab = null;
-    }
+    mainNavService.unbind(_selectTab);
     DeepLinkHandler.pendingInviteCode.removeListener(
       _onPendingInviteCodeChanged,
     );

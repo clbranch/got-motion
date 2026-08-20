@@ -472,7 +472,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$_selectedMetric · $_selectedRange',
+                  '$_selectedMetric · ${LeaderboardService.periodLabel(_selectedRange)}',
                   style: const TextStyle(
                     color: Color(0xFF45A4FF),
                     fontSize: 12,
@@ -537,7 +537,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   _loadFromSupabase();
                 },
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 8),
+              Text(
+                LeaderboardService.periodLabel(_selectedRange),
+                style: const TextStyle(
+                  color: Color(0xFF8D97A8),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 320),
                 switchInCurve: Curves.easeOutCubic,

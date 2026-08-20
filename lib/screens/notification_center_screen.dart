@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../models/app_notification.dart';
 import '../services/notification_service.dart';
+import '../services/main_nav_service.dart';
 import '../widgets/settings_ui.dart';
 
 class NotificationCenterScreen extends StatefulWidget {
@@ -108,7 +109,13 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                           final item = items[index];
                           return _NotificationRow(
                             notification: item,
-                            onTap: () => notificationService.markRead(item.id),
+                            onTap: () {
+                              notificationService.markRead(item.id);
+                              if (item.type == AppNotificationType.weeklyAward) {
+                                Navigator.of(context).pop();
+                                mainNavService.goToGroup();
+                              }
+                            },
                           );
                         },
                       ),

@@ -268,7 +268,7 @@ class _SettingsNotificationsScreenState
                           icon: Icons.workspace_premium_rounded,
                           color: const Color(0xFF16D6A1),
                           title: 'Weekly recap / awards',
-                          subtitle: 'Calorie King, Step Leader, Most Improved',
+                          subtitle: 'Monday recap of last week\'s category leaders',
                           value: prefs.weeklyRecap,
                           enabled: prefs.pushEnabled,
                           onChanged: (v) =>

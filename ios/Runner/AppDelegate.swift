@@ -1,11 +1,13 @@
 import Flutter
 import HealthKit
 import UIKit
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var pushChannel: FlutterMethodChannel?
   private var cachedApnsToken: String?
+  private var cachedNotificationTap: [AnyHashable: Any]?
 
   override func application(
     _ application: UIApplication,
@@ -64,6 +66,10 @@ import UIKit
         result(FlutterMethodNotImplemented)
       }
     }
+    if let pending = cachedNotificationTap {
+      cachedNotificationTap = nil
+      pushChannel.invokeMethod("onNotificationTap", arguments: pending)
+    }
   }
 
   override func application(
@@ -82,6 +88,24 @@ import UIKit
   ) {
     pushChannel?.invokeMethod("onTokenError", arguments: error.localizedDescription)
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let payload = response.notification.request.content.userInfo
+    if let pushChannel {
+      pushChannel.invokeMethod("onNotificationTap", arguments: payload)
+    } else {
+      cachedNotificationTap = payload
+    }
+    super.userNotificationCenter(
+      center,
+      didReceive: response,
+      withCompletionHandler: completionHandler
+    )
   }
 
   private static func openHealthApp(result: @escaping FlutterResult) {

@@ -52,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _rank;
   double? _standHours;
   int _selectedDay = DateTime.now().weekday - 1;
+  String _leaderboardMetric = 'Steps';
   bool _loading = true;
 
   final _dailySteps = DailyStepsService();
@@ -366,9 +367,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 16),
                     _LeaderboardCard(
                       entries: _leaders,
+                      metric: _leaderboardMetric,
                       hasGroup: selectedGroupService.selectedGroupId != null,
                       onSeeAll: widget.onSeeAllLeaderboard,
                       onGroupTap: widget.onOpenGroupTab,
+                      onMetricSelected: (metric) {
+                        setState(() => _leaderboardMetric = metric);
+                      },
                     ),
                   ],
                 ),
@@ -965,7 +970,7 @@ class _GoalHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progress = steps / goal;
+    final progress = goal <= 0 ? 0.0 : (steps / goal).clamp(0.0, 1.0);
     final behind = math.max(0, (leaderSteps ?? steps) - steps);
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1719,17 +1724,45 @@ class _WeeklyCard extends StatelessWidget {
 class _LeaderboardCard extends StatelessWidget {
   const _LeaderboardCard({
     required this.entries,
+    required this.metric,
     required this.hasGroup,
     required this.onSeeAll,
     required this.onGroupTap,
+    required this.onMetricSelected,
   });
   final List<MotionStats> entries;
+  final String metric;
   final bool hasGroup;
   final VoidCallback? onSeeAll;
   final VoidCallback? onGroupTap;
+  final ValueChanged<String> onMetricSelected;
+
+  static const _metrics = ['Steps', 'Calories', 'Miles', 'Exercise'];
+
+  double _valueFor(MotionStats stats) => switch (metric) {
+    'Calories' => stats.activeCalories.toDouble(),
+    'Miles' => stats.miles,
+    'Exercise' => stats.exerciseMinutes.toDouble(),
+    _ => stats.steps.toDouble(),
+  };
+
+  String _displayValue(MotionStats stats) {
+    final value = _valueFor(stats);
+    if (metric == 'Miles') return value.toStringAsFixed(1);
+    return _number(value);
+  }
+
+  String get _unit => switch (metric) {
+    'Calories' => 'cal',
+    'Miles' => 'mi',
+    'Exercise' => 'min',
+    _ => 'steps',
+  };
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final ranked = [...entries]..sort((a, b) => _valueFor(b).compareTo(_valueFor(a)));
+    return Container(
     padding: const EdgeInsets.all(16),
     decoration: _cardDecoration,
     child: Column(
@@ -1742,7 +1775,65 @@ class _LeaderboardCard extends StatelessWidget {
               TextButton(onPressed: onSeeAll, child: const Text('See all')),
           ],
         ),
-        if (entries.isEmpty)
+        Row(
+          children: [
+            PopupMenuButton<String>(
+              onSelected: onMetricSelected,
+              color: const Color(0xFF171C24),
+              offset: const Offset(0, 36),
+              itemBuilder: (context) => [
+                for (final option in _metrics)
+                  PopupMenuItem(
+                    value: option,
+                    child: Text(
+                      option,
+                      style: TextStyle(
+                        color: option == metric
+                            ? const Color(0xFF45A4FF)
+                            : Colors.white,
+                        fontWeight: option == metric
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0D2340),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFF174B82)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      metric,
+                      style: const TextStyle(
+                        color: Color(0xFF45A4FF),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.expand_more_rounded,
+                      size: 18,
+                      color: Color(0xFF45A4FF),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'today',
+              style: TextStyle(color: Color(0xFF8F99AA), fontSize: 13),
+            ),
+          ],
+        ),
+        if (ranked.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 18),
             child: Column(
@@ -1763,7 +1854,7 @@ class _LeaderboardCard extends StatelessWidget {
             ),
           )
         else
-          ...entries.take(3).toList().asMap().entries.map((row) {
+          ...ranked.take(3).toList().asMap().entries.map((row) {
             final rank = row.key + 1;
             final entry = row.value;
             final isMe = entry.isCurrentUser || entry.name == 'You';
@@ -1840,7 +1931,7 @@ class _LeaderboardCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    _number(entry.steps),
+                    '${_displayValue(entry)} $_unit',
                     style: TextStyle(
                       color: isMe ? const Color(0xFF45A4FF) : Colors.white,
                       fontWeight: FontWeight.w700,
@@ -1853,7 +1944,8 @@ class _LeaderboardCard extends StatelessWidget {
           }),
       ],
     ),
-  );
+    );
+  }
 }
 
 const _cardDecoration = BoxDecoration(

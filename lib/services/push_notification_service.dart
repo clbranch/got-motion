@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'main_nav_service.dart';
 import 'push_device_service.dart';
 
 enum PushPermissionState {
@@ -48,6 +49,9 @@ class PushNotificationService {
           if (kDebugMode) {
             debugPrint('[Push] token error: ${call.arguments}');
           }
+          return null;
+        case 'onNotificationTap':
+          _openFromPayload(call.arguments);
           return null;
         default:
           return null;
@@ -96,6 +100,19 @@ class PushNotificationService {
     }
 
     return PushPermissionState.granted;
+  }
+
+  void _openFromPayload(Object? raw) {
+    if (raw is! Map) return;
+    final data = Map<Object?, Object?>.from(raw);
+    final type = data['type']?.toString() ?? data['kind']?.toString() ?? '';
+    final screen = data['screen']?.toString() ?? '';
+    if (screen == 'group' ||
+        type == 'weekly_award' ||
+        type == 'weekly_award_winner' ||
+        type == 'weekly_award_recap') {
+      mainNavService.goToGroup();
+    }
   }
 
   Future<void> disablePushOnDevice() async {

@@ -15,9 +15,13 @@ import {
   groupRankBody,
   groupRankTier,
   groupRankTitle,
+  groupWeeklyRecapBody,
+  groupWeeklyRecapTitle,
   morningLines,
   pick,
   someoneMovingLine,
+  weeklyAwardPushBody,
+  weeklyAwardPushTitle,
 } from "../_shared/motion_copy.ts";
 import {
   corsPreflight,
@@ -104,6 +108,29 @@ Deno.serve(async (req) => {
         leaderSteps,
       });
       type = "group_activity";
+    } else if (kind === "weekly_award") {
+      const groupName = body.group_name ?? "your group";
+      title = weeklyAwardPushTitle(["steps"]);
+      text = weeklyAwardPushBody({
+        groupName,
+        categories: [{ category: "steps", value: body.steps ?? 11854 }],
+      });
+      type = "weekly_award";
+    } else if (kind === "weekly_recap") {
+      const groupName = body.group_name ?? "your group";
+      title = groupWeeklyRecapTitle(groupName);
+      text = groupWeeklyRecapBody({
+        groupName,
+        winners: [
+          {
+            userId: "a",
+            displayName: body.name ?? "Chris",
+            category: "steps",
+            value: body.steps ?? 11854,
+          },
+        ],
+      });
+      type = "weekly_award";
     } else if (kind === "custom") {
       if (!text) return json({ error: "custom kind needs body" }, 400);
       type = "group_activity";
@@ -115,7 +142,11 @@ Deno.serve(async (req) => {
       title,
       body: text,
       type,
-      data: { kind, source: "send-push" },
+      data: {
+        kind,
+        source: "send-push",
+        ...(type === "weekly_award" ? { screen: "group" } : {}),
+      },
     });
 
     return json({ ok: true, user_id: userId, title, body: text, ...result });

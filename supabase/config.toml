@@ -12,5 +12,5 @@ verify_jwt = false
 [functions.push-evening]
 verify_jwt = false
 
-[functions.push-group-motion]
+[functions.push-weekly-awards]
 verify_jwt = false

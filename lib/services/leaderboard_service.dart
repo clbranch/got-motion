@@ -174,6 +174,39 @@ class LeaderboardService {
     return results;
   }
 
+  static String periodLabel(String range, [DateTime? now]) {
+    final local = now ?? DateTime.now();
+    final today = DateTime(local.year, local.month, local.day);
+    String fmt(DateTime date) {
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${months[date.month - 1]} ${date.day}';
+    }
+
+    switch (_normalizeRange(range)) {
+      case 'This Week':
+        final monday = today.subtract(Duration(days: local.weekday - 1));
+        return '${fmt(monday)} – ${fmt(today)}';
+      case 'This Month':
+        final start = DateTime(today.year, today.month, 1);
+        return 'Month to date · ${fmt(start)} – ${fmt(today)}';
+      default:
+        return fmt(today);
+    }
+  }
+
   static String _normalizeRange(String range) {
     switch (range) {
       case 'Week':
