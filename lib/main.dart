@@ -4,8 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/app_boot.dart';
 import 'services/daily_steps_service.dart';
+import 'services/main_nav_service.dart';
 import 'screens/auth_gate.dart';
 import 'screens/splash_screen.dart';
+
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,6 +17,7 @@ void main() async {
     url: supabaseUrl,
     anonKey: 'sb_publishable_hT9YqLCUeYmMHZ-fuoE0-Q_ZZ_3st-X',
   );
+  mainNavService.navigatorKey = rootNavigatorKey;
   if (kDebugMode) {
     debugPrint(
       '[Supabase] Project URL (app is using this project): $supabaseUrl',
@@ -37,6 +41,7 @@ class GotMotionApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       title: 'Got Motion',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

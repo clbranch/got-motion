@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/health_hub_service.dart';
 import '../services/health_service.dart';
 import '../widgets/settings_ui.dart';
 
@@ -17,14 +20,18 @@ class _SettingsHealthPermissionsScreenState
     with WidgetsBindingObserver {
   bool _checking = false;
   bool _awaitingHealthReturn = false;
+  HealthHubStatus _hubStatus = HealthHubStatus.ready;
   static const _systemChannel = MethodChannel(
     'com.brogrammers.gotmotionapp/system',
   );
+
+  bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _refreshHubStatus();
   }
 
   @override
@@ -39,6 +46,15 @@ class _SettingsHealthPermissionsScreenState
       _awaitingHealthReturn = false;
       _refreshHealthAccess(showMessage: true);
     }
+    if (state == AppLifecycleState.resumed) {
+      _refreshHubStatus();
+    }
+  }
+
+  Future<void> _refreshHubStatus() async {
+    final status = await healthHubService.status();
+    if (!mounted) return;
+    setState(() => _hubStatus = status);
   }
 
   Future<void> _requestAccess() => _refreshHealthAccess(showMessage: true);
@@ -46,6 +62,25 @@ class _SettingsHealthPermissionsScreenState
   Future<void> _refreshHealthAccess({required bool showMessage}) async {
     if (_checking) return;
     setState(() => _checking = true);
+    if (_isAndroid && _hubStatus != HealthHubStatus.ready) {
+      await healthHubService.openInstallOrUpdate();
+      await _refreshHubStatus();
+      if (!mounted) return;
+      setState(() => _checking = false);
+      if (showMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _hubStatus == HealthHubStatus.ready
+                  ? 'Health Connect is ready. Tap Check access again.'
+                  : 'Install or update Health Connect, then return here.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
     await HealthService.requestAndFetchSteps();
     if (!mounted) return;
     setState(() => _checking = false);
@@ -58,7 +93,11 @@ class _SettingsHealthPermissionsScreenState
     );
   }
 
-  Future<void> _showManageInAppleHealthSheet() async {
+  Future<void> _showManageSheet() async {
+    if (_isAndroid) {
+      await _showManageHealthConnectSheet();
+      return;
+    }
     final shouldOpen = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: settingsSurface,
@@ -68,9 +107,88 @@ class _SettingsHealthPermissionsScreenState
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (sheetContext) =>
-          const SafeArea(top: false, child: _ManageHealthSheet()),
+          const SafeArea(top: false, child: _ManageAppleHealthSheet()),
     );
     if (shouldOpen == true) await _openAppleHealth();
+  }
+
+  Future<void> _showManageHealthConnectSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: settingsSurface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Manage Health Connect',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'On Android 14+: Settings → Security & privacy → Privacy → Health Connect → App permissions → Got Motion.\n\nOn older phones: open the Health Connect app → App permissions → Got Motion.',
+                style: TextStyle(
+                  color: settingsMuted,
+                  fontSize: 15,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (_hubStatus != HealthHubStatus.ready) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () async {
+                      Navigator.of(sheetContext).pop();
+                      final userId =
+                          Supabase.instance.client.auth.currentUser?.id;
+                      if (userId != null) {
+                        await healthHubService
+                            .clearInstallPromptDismissal(userId);
+                      }
+                      await healthHubService.openInstallOrUpdate();
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: settingsAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(
+                      _hubStatus == HealthHubStatus.needsUpdate
+                          ? 'Update Health Connect'
+                          : 'Get Health Connect',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  child: const Text('OK'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _openAppleHealth() async {
@@ -145,6 +263,19 @@ class _SettingsHealthPermissionsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final hubTitle = _isAndroid
+        ? (_hubStatus == HealthHubStatus.ready
+              ? 'Health Connect powers your stats'
+              : 'Health Connect required')
+        : 'Apple Health powers your stats';
+    final hubSubtitle = _isAndroid
+        ? (_hubStatus == HealthHubStatus.ready
+              ? 'Got Motion reads activity only after you grant access.'
+              : 'Older Android phones need Google’s free Health Connect app first. Newer phones already have it.')
+        : 'Got Motion reads activity only after you grant access.';
+    final manageLabel =
+        _isAndroid ? 'Manage in Health Connect' : 'Manage in Apple Health';
+
     return Scaffold(
       backgroundColor: settingsBackground,
       body: SafeArea(
@@ -180,22 +311,22 @@ class _SettingsHealthPermissionsScreenState
                         ),
                       ),
                       const SizedBox(width: 14),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Apple Health powers your stats',
-                              style: TextStyle(
+                              hubTitle,
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 19,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Text(
-                              'Got Motion reads activity only after you grant access.',
-                              style: TextStyle(
+                              hubSubtitle,
+                              style: const TextStyle(
                                 color: settingsMuted,
                                 fontSize: 14,
                                 height: 1.4,
@@ -227,10 +358,20 @@ class _SettingsHealthPermissionsScreenState
                                 color: Colors.white,
                               ),
                             )
-                          : const Icon(Icons.sync_rounded),
+                          : Icon(
+                              _isAndroid &&
+                                      _hubStatus != HealthHubStatus.ready
+                                  ? Icons.download_rounded
+                                  : Icons.sync_rounded,
+                            ),
                       label: Text(
                         _checking
                             ? 'Checking access...'
+                            : (_isAndroid &&
+                                  _hubStatus != HealthHubStatus.ready)
+                            ? (_hubStatus == HealthHubStatus.needsUpdate
+                                  ? 'Update Health Connect'
+                                  : 'Get Health Connect')
                             : 'Check health access',
                       ),
                     ),
@@ -239,7 +380,7 @@ class _SettingsHealthPermissionsScreenState
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: _showManageInAppleHealthSheet,
+                      onPressed: _showManageSheet,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFFF5A67),
                         side: const BorderSide(color: Color(0xFF3A4B61)),
@@ -249,7 +390,7 @@ class _SettingsHealthPermissionsScreenState
                         ),
                       ),
                       icon: const Icon(Icons.open_in_new_rounded),
-                      label: const Text('Manage in Apple Health'),
+                      label: Text(manageLabel),
                     ),
                   ),
                 ],
@@ -260,54 +401,65 @@ class _SettingsHealthPermissionsScreenState
             const SizedBox(height: 10),
             SettingsPanel(
               child: Column(
-                children: const [
-                  SettingsRow(
+                children: [
+                  const SettingsRow(
                     icon: Icons.directions_walk_rounded,
                     iconColor: settingsAccent,
                     title: 'Steps',
                     subtitle: 'Daily movement and leaderboard totals',
                     trailing: _RequestedBadge(),
                   ),
-                  SettingsDivider(),
-                  SettingsRow(
+                  const SettingsDivider(),
+                  const SettingsRow(
                     icon: Icons.local_fire_department_rounded,
                     iconColor: Color(0xFFFF861F),
                     title: 'Active calories',
                     subtitle: 'Move energy shown in CAL',
                     trailing: _RequestedBadge(),
                   ),
-                  SettingsDivider(),
+                  const SettingsDivider(),
                   SettingsRow(
                     icon: Icons.timer_outlined,
-                    iconColor: Color(0xFF9B7CFF),
+                    iconColor: const Color(0xFF9B7CFF),
                     title: 'Exercise minutes',
-                    subtitle: 'Apple exercise time shown in MIN',
-                    trailing: _RequestedBadge(),
+                    subtitle: _isAndroid
+                        ? 'From workouts logged in Health Connect'
+                        : 'Apple exercise time shown in MIN',
+                    trailing: const _RequestedBadge(),
                   ),
-                  SettingsDivider(),
-                  SettingsRow(
+                  const SettingsDivider(),
+                  const SettingsRow(
                     icon: Icons.fitness_center_rounded,
                     iconColor: Color(0xFFFF5A67),
                     title: 'Workouts',
-                    subtitle: 'Third-party sessions like MyZone that sync to Health',
+                    subtitle:
+                        'Sessions from watch/band apps that sync to the health hub',
                     trailing: _RequestedBadge(),
                   ),
-                  SettingsDivider(),
+                  const SettingsDivider(),
                   SettingsRow(
                     icon: Icons.route_rounded,
-                    iconColor: Color(0xFF18D3A2),
-                    title: 'Distance & stand',
-                    subtitle: 'Walking distance and Apple stand hours',
-                    trailing: _RequestedBadge(),
+                    iconColor: const Color(0xFF18D3A2),
+                    title: _isAndroid ? 'Distance' : 'Distance & stand',
+                    subtitle: _isAndroid
+                        ? 'Walking and running distance'
+                        : 'Walking distance and Apple stand hours',
+                    trailing: const _RequestedBadge(),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 18),
-            const Text(
-              'REQUESTED means Got Motion asked Apple for that type. Apple does not tell the app whether you allowed or denied it, so these are not confirmed permissions. Denied data simply appears unavailable. Only you can enable or revoke access in Apple Health.',
+            Text(
+              _isAndroid
+                  ? 'Got Motion asks Health Connect for these types. You control access in Health Connect settings. Denied data simply appears unavailable.'
+                  : 'REQUESTED means Got Motion asked Apple for that type. Apple does not tell the app whether you allowed or denied it, so these are not confirmed permissions. Denied data simply appears unavailable. Only you can enable or revoke access in Apple Health.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: settingsMuted, fontSize: 13, height: 1.4),
+              style: const TextStyle(
+                color: settingsMuted,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
           ],
         ),
@@ -316,8 +468,8 @@ class _SettingsHealthPermissionsScreenState
   }
 }
 
-class _ManageHealthSheet extends StatelessWidget {
-  const _ManageHealthSheet();
+class _ManageAppleHealthSheet extends StatelessWidget {
+  const _ManageAppleHealthSheet();
 
   @override
   Widget build(BuildContext context) {

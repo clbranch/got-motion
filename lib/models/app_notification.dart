@@ -5,6 +5,7 @@ enum AppNotificationType {
   dailyReturn,
   weeklyAward,
   groupActivity,
+  workoutLogged,
   unknown;
 
   static AppNotificationType fromWire(String? value) {
@@ -21,6 +22,8 @@ enum AppNotificationType {
         return AppNotificationType.weeklyAward;
       case 'group_activity':
         return AppNotificationType.groupActivity;
+      case 'workout_logged':
+        return AppNotificationType.workoutLogged;
       default:
         return AppNotificationType.unknown;
     }
@@ -40,6 +43,8 @@ enum AppNotificationType {
         return 'weekly_award';
       case AppNotificationType.groupActivity:
         return 'group_activity';
+      case AppNotificationType.workoutLogged:
+        return 'workout_logged';
       case AppNotificationType.unknown:
         return 'unknown';
     }

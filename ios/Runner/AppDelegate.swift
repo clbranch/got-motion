@@ -193,7 +193,7 @@ private enum HealthKitDayMetrics {
     var minuteSources = SourceTotals()
     var standHours: Double?
     var summary: HKActivitySummary?
-    var thirdPartyWorkouts = ThirdPartyWorkouts()
+    var loggedWorkouts = WorkoutTotals()
 
     group.enter()
     querySourceTotals(.stepCount, unit: .count(), start: start, end: end) { value in
@@ -245,9 +245,9 @@ private enum HealthKitDayMetrics {
     }
 
     group.enter()
-    queryThirdPartyWorkouts(start: start, end: end) { value in
+    queryLoggedWorkouts(start: start, end: end) { value in
       lock.lock()
-      thirdPartyWorkouts = value
+      loggedWorkouts = value
       lock.unlock()
       group.leave()
     }
@@ -259,25 +259,56 @@ private enum HealthKitDayMetrics {
         || calorieSources.watch > 0
         || minuteSources.watch > 0
 
-      let steps = stepSources.appleOrFallback(watchMode: watchMode)
-      let miles = mileSources.appleOrFallback(watchMode: watchMode)
-      var appleCalories = calorieSources.preferredApple(watchMode: watchMode)
-      var appleMinutes = minuteSources.preferredApple(watchMode: watchMode)
-
-      if watchMode, let summary {
-        appleCalories = summary.activeEnergyBurned.doubleValue(for: .kilocalorie())
-        appleMinutes = summary.appleExerciseTime.doubleValue(for: .minute())
-        standHours = summary.appleStandHours.doubleValue(for: .count())
+      let steps: Double
+      let miles: Double
+      if watchMode {
+        steps = stepSources.appleOrFallback(watchMode: true)
+        miles = mileSources.appleOrFallback(watchMode: true)
+      } else {
+        // Phone / band / Fitness: take the best Health total so a third-party
+        // band isn't ignored when the iPhone also wrote a smaller step count.
+        steps = max(stepSources.phone, stepSources.other, stepSources.merged)
+        miles = max(mileSources.phone, mileSources.other, mileSources.merged)
       }
 
-      // MyZone-style apps often write workout energy without duplicating
-      // activeEnergyBurned; take the larger third-party total, don't double it.
-      let thirdPartyCalories = max(
-        calorieSources.other,
-        thirdPartyWorkouts.kilocalories
-      )
-      let calories = appleCalories + thirdPartyCalories
-      let minutes = appleMinutes + thirdPartyWorkouts.minutes
+      // Re-filter workouts now that we know watch vs phone.
+      let workoutTotals = loggedWorkouts.filtered(forWatchMode: watchMode)
+
+      var appleCalories: Double
+      var appleMinutes: Double
+      var calories: Double
+      var minutes: Double
+
+      if watchMode {
+        appleCalories = calorieSources.preferredApple(watchMode: true)
+        appleMinutes = minuteSources.preferredApple(watchMode: true)
+        if let summary {
+          appleCalories = summary.activeEnergyBurned.doubleValue(for: .kilocalorie())
+          appleMinutes = summary.appleExerciseTime.doubleValue(for: .minute())
+          standHours = summary.appleStandHours.doubleValue(for: .count())
+        }
+        // Watch users: ring minutes from Watch; add third-party workouts only.
+        let thirdPartyCalories = max(calorieSources.other, workoutTotals.kilocalories)
+        calories = appleCalories + thirdPartyCalories
+        minutes = appleMinutes + workoutTotals.minutes
+      } else {
+        // Phone-only: match what Apple Health shows. Exercise minutes can come
+        // from the iPhone, Fitness, or apps writing appleExerciseTime — not only
+        // a source labeled "iPhone". Prefer Health's merged totals.
+        appleCalories = max(
+          calorieSources.phone,
+          calorieSources.other,
+          calorieSources.merged
+        )
+        appleMinutes = max(
+          minuteSources.phone,
+          minuteSources.other,
+          minuteSources.merged
+        )
+        // Workouts may add duration/energy that isn't fully in those totals.
+        calories = max(appleCalories, workoutTotals.kilocalories)
+        minutes = max(appleMinutes, workoutTotals.minutes)
+      }
 
       var payload: [String: Any] = [
         "steps": steps,
@@ -319,10 +350,12 @@ private enum HealthKitDayMetrics {
     store.execute(query)
   }
 
-  private static func queryThirdPartyWorkouts(
+  /// Loads HealthKit workouts (Apple/iPhone + third-party). Callers filter via
+  /// [WorkoutTotals.filtered] so Watch users don't double-count the green ring.
+  private static func queryLoggedWorkouts(
     start: Date,
     end: Date,
-    completion: @escaping (ThirdPartyWorkouts) -> Void
+    completion: @escaping (WorkoutTotals) -> Void
   ) {
     let predicate = HKQuery.predicateForSamples(
       withStart: start,
@@ -336,30 +369,48 @@ private enum HealthKitDayMetrics {
       sortDescriptors: nil
     ) { _, samples, _ in
       guard let workouts = samples as? [HKWorkout] else {
-        completion(ThirdPartyWorkouts())
+        completion(WorkoutTotals())
         return
       }
-      var totals = ThirdPartyWorkouts()
+      var applePhone = WorkoutTotals()
+      var thirdParty = WorkoutTotals()
       for workout in workouts {
         let blob =
           "\(workout.sourceRevision.source.bundleIdentifier) \(workout.sourceRevision.source.name)"
           .lowercased()
-        if blob.contains("watch")
-          || blob.contains("iphone")
-          || blob.contains("phone")
-          || blob.contains("com.apple")
-        {
-          continue
-        }
         let clippedStart = max(workout.startDate, start)
         let clippedEnd = min(workout.endDate, end)
         guard clippedEnd > clippedStart else { continue }
-        totals.minutes += clippedEnd.timeIntervalSince(clippedStart) / 60.0
-        if let energy = workout.totalEnergyBurned {
-          totals.kilocalories += energy.doubleValue(for: .kilocalorie())
+        let minutes = clippedEnd.timeIntervalSince(clippedStart) / 60.0
+        let kilocalories = workout.totalEnergyBurned?.doubleValue(for: .kilocalorie()) ?? 0
+        let isWatch = blob.contains("watch")
+        let isApplePhone =
+          !isWatch
+          && (blob.contains("iphone")
+            || blob.contains("phone")
+            || blob.contains("com.apple"))
+        if isWatch {
+          continue
+        }
+        if isApplePhone {
+          applePhone.minutes += minutes
+          applePhone.kilocalories += kilocalories
+        } else {
+          thirdParty.minutes += minutes
+          thirdParty.kilocalories += kilocalories
         }
       }
-      completion(totals)
+      // Store both buckets; filtered(forWatchMode:) picks the right mix.
+      completion(
+        WorkoutTotals(
+          minutes: applePhone.minutes + thirdParty.minutes,
+          kilocalories: applePhone.kilocalories + thirdParty.kilocalories,
+          applePhoneMinutes: applePhone.minutes,
+          applePhoneKilocalories: applePhone.kilocalories,
+          thirdPartyMinutes: thirdParty.minutes,
+          thirdPartyKilocalories: thirdParty.kilocalories
+        )
+      )
     }
     store.execute(query)
   }
@@ -438,9 +489,34 @@ private enum HealthKitDayMetrics {
   }
 }
 
-private struct ThirdPartyWorkouts {
+private struct WorkoutTotals {
   var minutes = 0.0
   var kilocalories = 0.0
+  var applePhoneMinutes = 0.0
+  var applePhoneKilocalories = 0.0
+  var thirdPartyMinutes = 0.0
+  var thirdPartyKilocalories = 0.0
+
+  /// Watch mode: third-party only (Watch rings already cover Apple activity).
+  /// Phone-only: include iPhone / Fitness / Health-logged workouts too.
+  func filtered(forWatchMode watchMode: Bool) -> WorkoutTotals {
+    if watchMode {
+      return WorkoutTotals(
+        minutes: thirdPartyMinutes,
+        kilocalories: thirdPartyKilocalories,
+        thirdPartyMinutes: thirdPartyMinutes,
+        thirdPartyKilocalories: thirdPartyKilocalories
+      )
+    }
+    return WorkoutTotals(
+      minutes: applePhoneMinutes + thirdPartyMinutes,
+      kilocalories: applePhoneKilocalories + thirdPartyKilocalories,
+      applePhoneMinutes: applePhoneMinutes,
+      applePhoneKilocalories: applePhoneKilocalories,
+      thirdPartyMinutes: thirdPartyMinutes,
+      thirdPartyKilocalories: thirdPartyKilocalories
+    )
+  }
 }
 
 /// Watch wins over iPhone when it recorded anything. Third-party sources are summed separately.
@@ -470,8 +546,10 @@ private struct SourceTotals {
 
   func preferredApple(watchMode: Bool) -> Double {
     if watchMode { return watch }
+    // Phone path: Health may attribute samples to "Health" / apps, not "iPhone".
     if phone > 0 { return phone }
-    return 0
+    if other > 0 { return other }
+    return merged
   }
 
   func appleOrFallback(watchMode: Bool) -> Double {

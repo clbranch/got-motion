@@ -3,7 +3,8 @@
 ///
 /// This file provides fake leaderboard users (Alex Chen, Jordan Lee, etc.) with
 /// hardcoded steps, miles, calories, and minutes. The real step count for the
-/// current device user is supplied by [HealthService] via Apple Health (HealthKit)
+/// current device user is supplied by [HealthService] via Apple Health /
+/// Google Health Connect (depending on platform).
 /// and is merged into the leaderboard in the UI layer.
 ///
 /// The mock users here will later be replaced with real users synced from a

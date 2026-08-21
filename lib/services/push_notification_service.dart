@@ -107,6 +107,14 @@ class PushNotificationService {
     final data = Map<Object?, Object?>.from(raw);
     final type = data['type']?.toString() ?? data['kind']?.toString() ?? '';
     final screen = data['screen']?.toString() ?? '';
+    final workoutId = data['workout_id']?.toString();
+    if (screen == 'workout' || type == 'workout_logged') {
+      mainNavService.goToTab(0);
+      if (workoutId != null && workoutId.isNotEmpty) {
+        mainNavService.openWorkout(workoutId);
+      }
+      return;
+    }
     if (screen == 'group' ||
         type == 'weekly_award' ||
         type == 'weekly_award_winner' ||

@@ -7,11 +7,13 @@ import '../services/deep_link_handler.dart';
 import '../services/goal_service.dart';
 import '../services/group_invite_service.dart';
 import '../services/group_service.dart';
+import '../services/health_hub_service.dart';
 import '../services/health_service.dart';
 import '../services/main_nav_service.dart';
 import '../services/push_prompt_service.dart';
 import '../services/selected_group_service.dart';
 import '../widgets/goal_complete_celebration.dart';
+import '../widgets/health_connect_install_prompt.dart';
 import '../widgets/push_enable_prompt.dart';
 import 'group_screen.dart';
 import 'home_screen.dart';
@@ -80,15 +82,31 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
     }
   }
 
-  /// Invite dialogs first, then push opt-in, then daily goal celebration.
+  /// Invite dialogs first, then Health Connect (Android), push, then goals.
   Future<void> _runStartupModals() async {
     await _checkPendingInvites();
     if (!mounted) return;
     await _checkPendingLink();
     if (!mounted) return;
+    await _maybeShowHealthConnectPrompt();
+    if (!mounted) return;
     await _maybeShowPushPrompt();
     if (!mounted) return;
     await _checkDailyGoalCelebration();
+  }
+
+  Future<void> _maybeShowHealthConnectPrompt() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || !mounted) return;
+    if (!await healthHubService.shouldPromptInstall(userId)) return;
+    final status = await healthHubService.status();
+    if (!mounted) return;
+    if (status == HealthHubStatus.ready) return;
+    await showHealthConnectInstallPrompt(
+      context,
+      userId: userId,
+      status: status,
+    );
   }
 
   @override

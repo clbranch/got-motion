@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../models/app_notification.dart';
 import '../services/notification_service.dart';
 import '../services/main_nav_service.dart';
+import '../screens/workout_detail_screen.dart';
 import '../widgets/settings_ui.dart';
 
 class NotificationCenterScreen extends StatefulWidget {
@@ -114,6 +115,21 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                               if (item.type == AppNotificationType.weeklyAward) {
                                 Navigator.of(context).pop();
                                 mainNavService.goToGroup();
+                                return;
+                              }
+                              if (item.type ==
+                                  AppNotificationType.workoutLogged) {
+                                final workoutId =
+                                    item.data['workout_id']?.toString();
+                                Navigator.of(context).pop();
+                                if (workoutId != null && workoutId.isNotEmpty) {
+                                  openWorkoutDetail(
+                                    context,
+                                    workoutId: workoutId,
+                                  );
+                                } else {
+                                  mainNavService.goToTab(0);
+                                }
                               }
                             },
                           );
@@ -287,6 +303,11 @@ class _NotificationRow extends StatelessWidget {
         );
       case AppNotificationType.groupActivity:
         return (icon: Icons.groups_rounded, color: const Color(0xFF38D6C5));
+      case AppNotificationType.workoutLogged:
+        return (
+          icon: Icons.fitness_center_rounded,
+          color: const Color(0xFF9A73FF),
+        );
       case AppNotificationType.unknown:
         return (icon: Icons.notifications_rounded, color: settingsAccent);
     }

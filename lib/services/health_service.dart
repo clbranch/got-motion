@@ -13,7 +13,7 @@ class HealthService {
     'com.brogrammers.gotmotionapp/system',
   );
 
-  static const List<HealthDataType> _dashboardTypes = [
+  static const List<HealthDataType> _iosTypes = [
     HealthDataType.STEPS,
     HealthDataType.DISTANCE_WALKING_RUNNING,
     HealthDataType.ACTIVE_ENERGY_BURNED,
@@ -21,6 +21,20 @@ class HealthService {
     HealthDataType.WORKOUT,
     HealthDataType.APPLE_STAND_HOUR,
   ];
+
+  /// Health Connect types (Android). Distance is DISTANCE_DELTA; no Apple
+  /// exercise/stand rings — workouts supply exercise minutes.
+  static const List<HealthDataType> _androidTypes = [
+    HealthDataType.STEPS,
+    HealthDataType.DISTANCE_DELTA,
+    HealthDataType.ACTIVE_ENERGY_BURNED,
+    HealthDataType.WORKOUT,
+  ];
+
+  static List<HealthDataType> get _dashboardTypes =>
+      defaultTargetPlatform == TargetPlatform.android
+      ? _androidTypes
+      : _iosTypes;
 
   static bool _configured = false;
 
@@ -39,14 +53,64 @@ class HealthService {
     return tomorrow.isAfter(now) ? now : tomorrow;
   }
 
-  static Future<bool> _ensureConfiguredAndAuthorized() async {
+  static Future<bool> _ensureConfiguredAndAuthorized({
+    bool writeWorkouts = false,
+  }) async {
     try {
       if (!_configured) {
         await _health.configure();
         _configured = true;
       }
-      return await _health.requestAuthorization(_dashboardTypes);
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final available = await _health.isHealthConnectAvailable();
+        if (!available) return false;
+      }
+      final types = List<HealthDataType>.from(_dashboardTypes);
+      final permissions = List<HealthDataAccess>.filled(
+        types.length,
+        HealthDataAccess.READ,
+      );
+      if (writeWorkouts) {
+        final workoutIndex = types.indexOf(HealthDataType.WORKOUT);
+        if (workoutIndex >= 0) {
+          permissions[workoutIndex] = HealthDataAccess.READ_WRITE;
+        } else {
+          types.add(HealthDataType.WORKOUT);
+          permissions.add(HealthDataAccess.READ_WRITE);
+        }
+      }
+      return await _health.requestAuthorization(
+        types,
+        permissions: permissions,
+      );
     } catch (_) {
+      return false;
+    }
+  }
+
+  /// Writes a Got Motion workout into Apple Health / Health Connect.
+  static Future<bool> writeWorkout({
+    required HealthWorkoutActivityType activityType,
+    required DateTime start,
+    required DateTime end,
+    String? title,
+  }) async {
+    try {
+      if (!await _ensureConfiguredAndAuthorized(writeWorkouts: true)) {
+        return false;
+      }
+      return await _health.writeWorkoutData(
+        activityType: activityType,
+        start: start,
+        end: end,
+        title: title,
+        recordingMethod: RecordingMethod.manual,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('[HealthService] writeWorkout failed: $e');
+      }
       return false;
     }
   }
@@ -206,14 +270,9 @@ class HealthService {
     DateTime startOfDay,
     DateTime endOfDay,
   ) async {
+    final isAndroid = defaultTargetPlatform == TargetPlatform.android;
     final points = await _read(
-      const [
-        HealthDataType.STEPS,
-        HealthDataType.DISTANCE_WALKING_RUNNING,
-        HealthDataType.ACTIVE_ENERGY_BURNED,
-        HealthDataType.EXERCISE_TIME,
-        HealthDataType.WORKOUT,
-      ],
+      isAndroid ? _androidTypes : _iosTypes,
       startOfDay,
       endOfDay,
     );
@@ -223,12 +282,14 @@ class HealthService {
       active.where((p) => p.type == HealthDataType.STEPS).toList(),
       _numericValue,
     );
+    final distanceType = isAndroid
+        ? HealthDataType.DISTANCE_DELTA
+        : HealthDataType.DISTANCE_WALKING_RUNNING;
     final meters = _sumBestNamedSource(
-      active
-          .where((p) => p.type == HealthDataType.DISTANCE_WALKING_RUNNING)
-          .toList(),
+      active.where((p) => p.type == distanceType).toList(),
       _toMeters,
     );
+    final hasWatch = points.any((p) => _sourceBucket(p) == 'watch');
     final appleCalories = _sumBestNamedSource(
       active
           .where((p) => p.type == HealthDataType.ACTIVE_ENERGY_BURNED)
@@ -238,22 +299,55 @@ class HealthService {
     final otherCalories = other
         .where((p) => p.type == HealthDataType.ACTIVE_ENERGY_BURNED)
         .fold<double>(0, (sum, point) => sum + _numericValue(point));
-    final workoutCalories = other
+    // Sum all non-watch exercise-time samples so we match Health's chart when
+    // the source isn't labeled "iPhone".
+    final exercisePoints = points
+        .where((p) => p.type == HealthDataType.EXERCISE_TIME)
+        .where((p) => !hasWatch || _sourceBucket(p) == 'watch')
+        .toList();
+    final appleMinutes = hasWatch
+        ? _sumBestNamedSource(exercisePoints, _numericValue)
+        : exercisePoints.fold<double>(0, (sum, p) => sum + _numericValue(p));
+
+    // Without a Watch, also credit logged workouts from iPhone / Fitness /
+    // third-party apps (Health may already include some of these).
+    // On Android, workouts are the primary exercise-minute source.
+    final workoutPoints = points
         .where((p) => p.type == HealthDataType.WORKOUT)
-        .fold<double>(0, (sum, point) => sum + _workoutKilocalories(point));
-    final appleMinutes = _sumBestNamedSource(
-      active.where((p) => p.type == HealthDataType.EXERCISE_TIME).toList(),
-      _numericValue,
+        .where((p) {
+          final bucket = _sourceBucket(p);
+          if (hasWatch) return bucket == 'other';
+          return bucket != 'watch';
+        })
+        .toList();
+    final workoutCalories = workoutPoints.fold<double>(
+      0,
+      (sum, point) => sum + _workoutKilocalories(point),
     );
-    final workoutMinutes = other
-        .where((p) => p.type == HealthDataType.WORKOUT)
-        .fold<double>(0, (sum, point) => sum + _workoutMinutes(point));
+    final workoutMinutes = workoutPoints.fold<double>(
+      0,
+      (sum, point) => sum + _workoutMinutes(point),
+    );
+
+    final calories = hasWatch
+        ? appleCalories +
+              (otherCalories > workoutCalories ? otherCalories : workoutCalories)
+        : [
+            appleCalories,
+            otherCalories,
+            workoutCalories,
+          ].reduce((a, b) => a > b ? a : b);
+    final minutes = isAndroid
+        ? workoutMinutes
+        : hasWatch
+        ? appleMinutes + workoutMinutes
+        : (appleMinutes > workoutMinutes ? appleMinutes : workoutMinutes);
+
     return TodayMetrics(
       steps: steps.round(),
       distanceMiles: meters / 1609.344,
-      activeEnergyCalories:
-          appleCalories + (otherCalories > workoutCalories ? otherCalories : workoutCalories),
-      exerciseMinutes: appleMinutes + workoutMinutes,
+      activeEnergyCalories: calories,
+      exerciseMinutes: minutes,
     );
   }
 
@@ -437,6 +531,8 @@ class HealthService {
   }
 
   static Future<double?> getStandHoursForDay(DateTime date) async {
+    // Stand hours are an Apple Activity ring metric — not on Health Connect.
+    if (defaultTargetPlatform == TargetPlatform.android) return null;
     try {
       if (!await _ensureConfiguredAndAuthorized()) return null;
       final startOfDay = _startOfDay(date);

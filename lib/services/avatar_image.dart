@@ -16,11 +16,20 @@ class AvatarImage {
   static const String extension = '.jpg';
 
   static Future<Uint8List> prepare(File file) async {
+    return _compress(file, maxEdge: _maxEdge);
+  }
+
+  /// Workout proof photos — larger than avatars, still capped for upload.
+  static Future<Uint8List> prepareProof(File file) async {
+    return _compress(file, maxEdge: 1280);
+  }
+
+  static Future<Uint8List> _compress(File file, {required int maxEdge}) async {
     try {
       final compressed = await FlutterImageCompress.compressWithFile(
         file.absolute.path,
-        minWidth: _maxEdge,
-        minHeight: _maxEdge,
+        minWidth: maxEdge,
+        minHeight: maxEdge,
         quality: _quality,
         format: CompressFormat.jpeg,
       );

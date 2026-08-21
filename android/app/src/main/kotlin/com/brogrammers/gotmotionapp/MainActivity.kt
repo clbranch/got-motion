@@ -1,4 +1,4 @@
-package com.example.got_motion
+package com.brogrammers.gotmotionapp
 
 import io.flutter.embedding.android.FlutterActivity
 

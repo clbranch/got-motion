@@ -46,11 +46,15 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Got Motion lets you choose a photo for your profile and for groups you manage.</string>
+	<string>Got Motion lets you choose photos for your profile, groups, and workout proof.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Got Motion uses the camera so you can take a proof photo or short video of your workout for your group.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Got Motion uses the microphone when you record a short workout proof video.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Got Motion reads steps, distance, active calories, exercise minutes, and workouts from Apple Health — including data from Apple Watch and apps that sync to Health, such as gym wearables — to show your progress on the leaderboard.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Got Motion uses Apple Health to display your activity data in the app.</string>
+	<string>Got Motion saves workouts you start in the app to Apple Health so exercise minutes count toward your Activity rings and competitions.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
