@@ -6,11 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/logged_workout.dart';
 import '../models/motion_stats.dart';
 import '../models/today_metrics.dart';
-import '../screens/active_workout_screen.dart';
-import '../screens/workout_detail_screen.dart';
 import '../services/daily_steps_service.dart';
 import '../services/goal_service.dart';
 import '../services/main_nav_service.dart';
@@ -27,6 +24,7 @@ import '../screens/notification_center_screen.dart';
 import '../widgets/footsteps_icon.dart';
 import '../widgets/goal_complete_celebration.dart';
 import '../widgets/group_avatar.dart';
+import '../widgets/workout_log_entry.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -58,7 +56,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _selectedDay = DateTime.now().weekday - 1;
   String _leaderboardMetric = 'Steps';
   bool _loading = true;
-  List<LoggedWorkout> _recentWorkouts = const [];
   ActiveWorkoutSession? _activeWorkout;
 
   final _dailySteps = DailyStepsService();
@@ -136,7 +133,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final today = values[0] as TodayMetrics;
     final leaders = await _fetchLeaders(today);
     if (!mounted || generation != _loadGeneration) return;
-    final recent = await workoutLogService.recentForSelectedGroup();
     final active = await workoutLogService.getActiveSession();
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
@@ -146,7 +142,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _standHours = values[3] as double?;
       _leaders = leaders;
       _rank = _findRank(leaders);
-      _recentWorkouts = recent;
       _activeWorkout = active;
       _loading = false;
     });
@@ -154,8 +149,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _maybeCelebrateGoals(today);
   }
 
-  Future<void> _openWorkoutFlow() async {
-    await showStartWorkoutSheet(context);
+  Future<void> _resumeActiveWorkout() async {
+    await openWorkoutLogFlow(context);
     if (mounted) _load();
   }
 
@@ -358,14 +353,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 ? "Today's"
                                 : "${_weekday(_selectedDay)}'s",
                           ),
-                          const SizedBox(height: 14),
-                          _WorkoutCta(
-                            active: _activeWorkout != null,
-                            onTap: _openWorkoutFlow,
-                          ),
-                          if (_recentWorkouts.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            _RecentWorkoutsStrip(workouts: _recentWorkouts),
+                          if (_activeWorkout != null) ...[
+                            const SizedBox(height: 12),
+                            ActiveWorkoutHomeBanner(onTap: _resumeActiveWorkout),
                           ],
                           const SizedBox(height: 24),
                           _Title(_isToday ? 'Today' : _weekday(_selectedDay)),
@@ -969,199 +959,6 @@ class _Header extends StatelessWidget {
             ),
           ),
           icon: const Icon(Icons.person_add_alt_1_rounded),
-        ),
-      ],
-    );
-  }
-}
-
-class _WorkoutCta extends StatelessWidget {
-  const _WorkoutCta({required this.active, required this.onTap});
-
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFF14101F),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: const Color(0xFF9A73FF).withValues(alpha: 0.35),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9A73FF).withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  active
-                      ? Icons.timer_rounded
-                      : Icons.fitness_center_rounded,
-                  color: const Color(0xFF9A73FF),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      active ? 'Workout in progress' : 'Start a workout',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      active
-                          ? 'Tap to return to your timer'
-                          : 'Log exercise + optional proof photo for your group',
-                      style: const TextStyle(
-                        color: Color(0xFF9BA5B7),
-                        fontSize: 13,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: Color(0xFF9A73FF),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RecentWorkoutsStrip extends StatelessWidget {
-  const _RecentWorkoutsStrip({required this.workouts});
-
-  final List<LoggedWorkout> workouts;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Group workouts',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 132,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: workouts.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final w = workouts[index];
-              return InkWell(
-                onTap: () => openWorkoutDetail(context, workout: w),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  width: 148,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF11151B),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF242A35)),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            if (w.proofImageUrl != null)
-                              Image.network(
-                                w.proofImageUrl!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => const ColoredBox(
-                                  color: Color(0xFF1A222D),
-                                  child: Icon(
-                                    Icons.fitness_center_rounded,
-                                    color: Color(0xFF9A73FF),
-                                  ),
-                                ),
-                              )
-                            else
-                              const ColoredBox(
-                                color: Color(0xFF1A222D),
-                                child: Icon(
-                                  Icons.fitness_center_rounded,
-                                  color: Color(0xFF9A73FF),
-                                ),
-                              ),
-                            if (w.proofVideoUrl != null)
-                              const Align(
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  Icons.play_circle_fill_rounded,
-                                  color: Colors.white,
-                                  size: 36,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              w.displayName ?? 'Member',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              '${w.title} · ${w.durationMinutes} min',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF9BA5B7),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
         ),
       ],
     );

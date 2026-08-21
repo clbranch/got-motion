@@ -36,18 +36,50 @@ class WorkoutLogService {
   }
 
   Future<void> startSession(WorkoutActivityKind kind) async {
+    final now = DateTime.now();
     final session = ActiveWorkoutSession(
       activityType: kind.storageKey,
       title: kind.label,
-      startedAt: DateTime.now(),
+      startedAt: now,
+      segmentStartedAt: now,
+      accumulatedSeconds: 0,
+      isPaused: false,
     );
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_activeKey, jsonEncode(session.toJson()));
+    await _persistSession(session);
   }
 
   Future<void> clearActiveSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_activeKey);
+  }
+
+  Future<void> _persistSession(ActiveWorkoutSession session) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_activeKey, jsonEncode(session.toJson()));
+  }
+
+  Future<ActiveWorkoutSession?> pauseSession() async {
+    final session = await getActiveSession();
+    if (session == null || session.isPaused) return session;
+    final now = DateTime.now();
+    final updated = session.copyWith(
+      accumulatedSeconds: session.elapsedSecondsAt(now),
+      isPaused: true,
+      clearSegmentStartedAt: true,
+    );
+    await _persistSession(updated);
+    return updated;
+  }
+
+  Future<ActiveWorkoutSession?> resumeSession() async {
+    final session = await getActiveSession();
+    if (session == null || !session.isPaused) return session;
+    final updated = session.copyWith(
+      segmentStartedAt: DateTime.now(),
+      isPaused: false,
+    );
+    await _persistSession(updated);
+    return updated;
   }
 
   /// Finish timer → write Health → save row (+ optional proof) → notify group.
@@ -60,15 +92,16 @@ class WorkoutLogService {
     if (userId == null) throw StateError('Not signed in');
 
     final endedAt = DateTime.now();
-    final durationSeconds = endedAt.difference(session.startedAt).inSeconds;
+    final durationSeconds = session.elapsedSecondsAt(endedAt);
     if (durationSeconds < 30) {
       throw StateError('Work out at least 30 seconds before finishing.');
     }
 
     final kind = WorkoutActivityKindX.fromStorage(session.activityType);
+    final healthStart = endedAt.subtract(Duration(seconds: durationSeconds));
     final healthWritten = await HealthService.writeWorkout(
       activityType: kind.healthType,
-      start: session.startedAt,
+      start: healthStart,
       end: endedAt,
       title: 'Got Motion · ${session.title}',
     );
@@ -89,7 +122,7 @@ class WorkoutLogService {
           'group_id': groupId,
           'activity_type': session.activityType,
           'title': session.title,
-          'started_at': session.startedAt.toUtc().toIso8601String(),
+          'started_at': healthStart.toUtc().toIso8601String(),
           'ended_at': endedAt.toUtc().toIso8601String(),
           'duration_seconds': durationSeconds,
           'proof_image_url': proofImageUrl,
@@ -269,23 +302,82 @@ class ActiveWorkoutSession {
     required this.activityType,
     required this.title,
     required this.startedAt,
+    required this.accumulatedSeconds,
+    required this.isPaused,
+    this.segmentStartedAt,
   });
 
   final String activityType;
   final String title;
   final DateTime startedAt;
+  /// Seconds completed before the current running segment.
+  final int accumulatedSeconds;
+  final bool isPaused;
+  /// When the current run segment began; null while paused.
+  final DateTime? segmentStartedAt;
+
+  int elapsedSecondsAt(DateTime now) {
+    var total = accumulatedSeconds;
+    final segmentStart = segmentStartedAt;
+    if (!isPaused && segmentStart != null) {
+      total += now.difference(segmentStart).inSeconds;
+    }
+    return total < 0 ? 0 : total;
+  }
+
+  ActiveWorkoutSession copyWith({
+    String? activityType,
+    String? title,
+    DateTime? startedAt,
+    int? accumulatedSeconds,
+    bool? isPaused,
+    DateTime? segmentStartedAt,
+    bool clearSegmentStartedAt = false,
+  }) {
+    return ActiveWorkoutSession(
+      activityType: activityType ?? this.activityType,
+      title: title ?? this.title,
+      startedAt: startedAt ?? this.startedAt,
+      accumulatedSeconds: accumulatedSeconds ?? this.accumulatedSeconds,
+      isPaused: isPaused ?? this.isPaused,
+      segmentStartedAt: clearSegmentStartedAt
+          ? null
+          : (segmentStartedAt ?? this.segmentStartedAt),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'activityType': activityType,
         'title': title,
         'startedAt': startedAt.toIso8601String(),
+        'accumulatedSeconds': accumulatedSeconds,
+        'isPaused': isPaused,
+        'segmentStartedAt': segmentStartedAt?.toIso8601String(),
       };
 
   static ActiveWorkoutSession fromJson(Map<String, dynamic> json) {
+    final startedAt = DateTime.parse(json['startedAt'] as String);
+    final segmentRaw = json['segmentStartedAt'] as String?;
+    final hasPauseFields = json.containsKey('accumulatedSeconds');
+    if (!hasPauseFields) {
+      // Legacy sessions: treat as running since startedAt.
+      return ActiveWorkoutSession(
+        activityType: json['activityType'] as String? ?? 'other',
+        title: json['title'] as String? ?? 'Workout',
+        startedAt: startedAt,
+        accumulatedSeconds: 0,
+        isPaused: false,
+        segmentStartedAt: startedAt,
+      );
+    }
     return ActiveWorkoutSession(
       activityType: json['activityType'] as String? ?? 'other',
       title: json['title'] as String? ?? 'Workout',
-      startedAt: DateTime.parse(json['startedAt'] as String),
+      startedAt: startedAt,
+      accumulatedSeconds: (json['accumulatedSeconds'] as num?)?.toInt() ?? 0,
+      isPaused: json['isPaused'] as bool? ?? false,
+      segmentStartedAt:
+          segmentRaw == null ? null : DateTime.tryParse(segmentRaw),
     );
   }
 }

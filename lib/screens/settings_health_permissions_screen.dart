@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/health_hub_service.dart';
 import '../services/health_service.dart';
 import '../widgets/settings_ui.dart';
+import '../widgets/workout_log_entry.dart';
 
 class SettingsHealthPermissionsScreen extends StatefulWidget {
   const SettingsHealthPermissionsScreen({super.key});
@@ -391,6 +392,45 @@ class _SettingsHealthPermissionsScreenState
                       ),
                       icon: const Icon(Icons.open_in_new_rounded),
                       label: Text(manageLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            SettingsPanel(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'No Apple Watch?',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'You can optionally log a workout from Profile so exercise minutes and proof show up for your group. Watch users usually don’t need this.',
+                    style: TextStyle(
+                      color: settingsMuted,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => openWorkoutLogFlow(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF9A73FF),
+                        side: const BorderSide(color: Color(0xFF3A4B61)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Log a workout'),
                     ),
                   ),
                 ],

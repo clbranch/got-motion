@@ -5,15 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/logged_workout.dart';
 import '../models/today_metrics.dart';
 import '../services/daily_steps_service.dart';
 import '../services/goal_service.dart';
 import '../services/health_service.dart';
 import '../services/main_nav_service.dart';
 import '../services/profile_service.dart';
+import '../services/workout_log_service.dart';
 import '../widgets/daily_activity_rings.dart';
 import '../widgets/footsteps_icon.dart';
 import '../widgets/goal_complete_celebration.dart';
+import '../widgets/workout_log_entry.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -31,6 +34,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   TodayMetrics _today = TodayMetrics.zero;
   ProfileData? _profile;
   List<int> _week = List.filled(7, 0);
+  List<LoggedWorkout> _recentWorkouts = const [];
+  ActiveWorkoutSession? _activeWorkout;
   bool _loading = true;
   bool _savingAvatar = false;
 
@@ -65,14 +70,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ]);
     if (!mounted) return;
     final today = results[0] as TodayMetrics;
+    final recent = await workoutLogService.recentForSelectedGroup();
+    final active = await workoutLogService.getActiveSession();
+    if (!mounted) return;
     setState(() {
       _today = today;
       _week = results[1] as List<int>;
       _profile = results[2] as ProfileData?;
+      _recentWorkouts = recent;
+      _activeWorkout = active;
       _loading = false;
     });
     _syncToday(user.id, today);
     _maybeCelebrateGoals(user.id, goalService.goals, today);
+  }
+
+  Future<void> _openWorkoutLog() async {
+    await openWorkoutLogFlow(context);
+    if (mounted) _load();
   }
 
   void _maybeCelebrateGoals(
@@ -134,6 +149,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 14),
                     _identityCard(),
+                    const SizedBox(height: 16),
+                    WorkoutLogEntryCard(
+                      active: _activeWorkout != null,
+                      onTap: _openWorkoutLog,
+                    ),
+                    if (_recentWorkouts.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      RecentGroupWorkoutsStrip(workouts: _recentWorkouts),
+                    ],
                     const SizedBox(height: 22),
                     _sectionHeader(
                       'Daily Goals',
