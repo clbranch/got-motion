@@ -11,7 +11,9 @@ import 'settings_notifications_screen.dart';
 import 'settings_privacy_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.scrollController});
+
+  final ScrollController? scrollController;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -115,6 +117,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: settingsBackground,
       body: SafeArea(
         child: ListView(
+          controller: widget.scrollController,
+          primary: false,
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
           children: [
             const SettingsPageHeader(

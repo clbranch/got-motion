@@ -40,11 +40,13 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
   bool _pendingInvitesChecked = false;
   final GroupInviteService _inviteService = GroupInviteService();
   late final PageController _pageController;
+  late final List<ScrollController> _tabScrollControllers;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _tabScrollControllers = List.generate(5, (_) => ScrollController());
     mainNavService.bind(_selectTab);
     _pageController = PageController();
     // Belt-and-suspenders: AuthGate hydrates first, but if Home mounts before
@@ -63,8 +65,21 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
     DeepLinkHandler.pendingInviteCode.removeListener(
       _onPendingInviteCodeChanged,
     );
+    for (final controller in _tabScrollControllers) {
+      controller.dispose();
+    }
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _scrollTabToTop(int index) {
+    final controller = _tabScrollControllers[index];
+    void jump() {
+      if (controller.hasClients) controller.jumpTo(0);
+    }
+
+    jump();
+    WidgetsBinding.instance.addPostFrameCallback((_) => jump());
   }
 
   void _selectTab(int index) {
@@ -75,6 +90,7 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
       duration: const Duration(milliseconds: 340),
       curve: Curves.easeOutCubic,
     );
+    _scrollTabToTop(index);
   }
 
   void _onPendingInviteCodeChanged() {
@@ -347,14 +363,26 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
       _KeepAlive(
         child: HomeScreen(
           isActive: _currentIndex == 0,
+          scrollController: _tabScrollControllers[0],
           onSeeAllLeaderboard: () => _selectTab(1),
           onOpenGroupTab: () => _selectTab(3),
         ),
       ),
-      _KeepAlive(child: LeaderboardScreen(isActive: _currentIndex == 1)),
-      const _KeepAlive(child: ProfileScreen()),
-      const _KeepAlive(child: GroupScreen()),
-      const _KeepAlive(child: SettingsScreen()),
+      _KeepAlive(
+        child: LeaderboardScreen(
+          isActive: _currentIndex == 1,
+          scrollController: _tabScrollControllers[1],
+        ),
+      ),
+      _KeepAlive(
+        child: ProfileScreen(scrollController: _tabScrollControllers[2]),
+      ),
+      _KeepAlive(
+        child: GroupScreen(scrollController: _tabScrollControllers[3]),
+      ),
+      _KeepAlive(
+        child: SettingsScreen(scrollController: _tabScrollControllers[4]),
+      ),
     ];
     return Scaffold(
       body: PageView(

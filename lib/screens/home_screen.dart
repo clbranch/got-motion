@@ -30,12 +30,14 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     this.isActive = true,
+    this.scrollController,
     this.onSeeAllLeaderboard,
     this.onOpenGroupTab,
   });
 
   /// True when this tab is visible in the bottom nav.
   final bool isActive;
+  final ScrollController? scrollController;
   final VoidCallback? onSeeAllLeaderboard;
   final VoidCallback? onOpenGroupTab;
 
@@ -327,6 +329,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 backgroundColor: const Color(0xFF141820),
                 onRefresh: _load,
                 child: ListView(
+                  controller: widget.scrollController,
+                  primary: false,
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                   children: [
                     _Header(

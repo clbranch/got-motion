@@ -16,10 +16,15 @@ import 'player_detail_screen.dart';
 /// Leaderboard screen: group name, leaderboard header row, list of cards.
 /// Data is loaded from Supabase via LeaderboardService (group_leaderboard view).
 class LeaderboardScreen extends StatefulWidget {
-  const LeaderboardScreen({super.key, this.isActive = false});
+  const LeaderboardScreen({
+    super.key,
+    this.isActive = false,
+    this.scrollController,
+  });
 
   /// True when this tab is visible in the bottom nav.
   final bool isActive;
+  final ScrollController? scrollController;
 
   @override
   State<LeaderboardScreen> createState() => _LeaderboardScreenState();
@@ -556,6 +561,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           color: _accent,
           backgroundColor: const Color(0xFF141820),
           child: ListView(
+            controller: widget.scrollController,
+            primary: false,
             padding: const EdgeInsets.fromLTRB(
               _pagePadding,
               12,

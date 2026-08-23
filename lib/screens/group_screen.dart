@@ -19,7 +19,9 @@ import '../widgets/weekly_group_awards_card.dart';
 
 /// Group screen: selected group, create/join actions, member list. Uses SelectedGroupService for app-wide selected group.
 class GroupScreen extends StatefulWidget {
-  const GroupScreen({super.key});
+  const GroupScreen({super.key, this.scrollController});
+
+  final ScrollController? scrollController;
 
   @override
   State<GroupScreen> createState() => _GroupScreenState();
@@ -624,6 +626,8 @@ class _GroupScreenState extends State<GroupScreen> {
       backgroundColor: _background,
       body: SafeArea(
         child: ListView(
+          controller: widget.scrollController,
+          primary: false,
           padding: const EdgeInsets.fromLTRB(
             _pagePadding,
             16,

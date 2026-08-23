@@ -19,7 +19,10 @@ import '../widgets/goal_complete_celebration.dart';
 import '../widgets/workout_log_entry.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.scrollController});
+
+  final ScrollController? scrollController;
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -137,6 +140,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: _accent,
                 backgroundColor: _card,
                 child: ListView(
+                  controller: widget.scrollController,
+                  primary: false,
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 92),
                   children: [
                     const Text(
