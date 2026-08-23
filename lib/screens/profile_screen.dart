@@ -19,8 +19,9 @@ import '../widgets/goal_complete_celebration.dart';
 import '../widgets/workout_log_entry.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, this.scrollController});
+  const ProfileScreen({super.key, this.isActive = false, this.scrollController});
 
+  final bool isActive;
   final ScrollController? scrollController;
 
   @override
@@ -47,7 +48,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     goalService.addListener(_goalsChanged);
     goalService.reloadFromCurrentUser();
-    _load();
+    if (widget.isActive) _load();
+  }
+
+  @override
+  void didUpdateWidget(ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive && _loading) {
+      _load();
+    }
   }
 
   @override
@@ -67,9 +76,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
     final results = await Future.wait<dynamic>([
-      HealthService.getTodayMetrics(),
-      HealthService.getWeekStepsByDay(),
-      _profileService.getCurrentProfile(),
+      HealthService.getTodayMetrics().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => TodayMetrics.zero,
+      ),
+      HealthService.getWeekStepsByDay().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => List.filled(7, 0),
+      ),
+      _profileService.getCurrentProfile().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => null,
+      ),
     ]);
     if (!mounted) return;
     final today = results[0] as TodayMetrics;

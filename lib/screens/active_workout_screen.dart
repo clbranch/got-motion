@@ -1003,7 +1003,7 @@ class _FinishWorkoutSheetState extends State<_FinishWorkoutSheet> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Snap a 5-second video or photo so your group can see you put in the work. Finish time comes from the Got Motion timer.',
+              'Snap a photo (or short video) so your group can see you put in the work. Proof is removed after about 7 days — your workout time stays on the leaderboard. Finish time comes from the Got Motion timer.',
               style: TextStyle(color: settingsMuted, fontSize: 14, height: 1.4),
             ),
             const SizedBox(height: 16),

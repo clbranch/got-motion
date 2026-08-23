@@ -14,8 +14,17 @@ class DailyStepsService {
   /// Re-sync recent days — HealthKit totals can shift slightly after workouts sync.
   static const historyResyncDays = 7;
 
+  /// Max days pulled from HealthKit per sync call so UI stays responsive.
+  static const maxDaysPerSync = 21;
+
+  /// First-time backfill window (older history fills in over later app opens).
+  static const initialBackfillDays = 60;
+
   static String _syncedThroughKey(String userId) =>
       'daily_steps_synced_through_$userId';
+
+  static String _oldestSyncedKey(String userId) =>
+      'daily_steps_oldest_synced_$userId';
 
   /// Set from main.dart after Supabase.initialize so debug logs can show which project is used.
   static String? debugSupabaseUrl;
@@ -109,9 +118,8 @@ class DailyStepsService {
 
   static bool _historySyncing = false;
 
-  /// Backfills daily_steps from HealthKit so Week/Month views and future history
-  /// screens can sum real data. First run pulls up to [historyLookbackDays];
-  /// later runs refresh the last week and fill any new days.
+  /// Backfills daily_steps from HealthKit so Week/Month views can sum real data.
+  /// Syncs in small chunks so HealthKit work never blocks the UI for minutes.
   Future<void> syncHistoryToDate(String userId) async {
     if (_historySyncing) return;
     _historySyncing = true;
@@ -123,30 +131,53 @@ class DailyStepsService {
       );
 
       final prefs = await SharedPreferences.getInstance();
-      final syncedThroughRaw = prefs.getString(_syncedThroughKey(userId));
-      final syncedThrough = syncedThroughRaw == null
+      final oldestSyncedRaw = prefs.getString(_oldestSyncedKey(userId));
+      final oldestSynced = oldestSyncedRaw == null
           ? null
-          : DateTime.tryParse(syncedThroughRaw);
+          : DateTime.tryParse(oldestSyncedRaw);
 
-      final DateTime start;
-      if (syncedThrough == null) {
-        start = earliest;
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print(
-            '[DailySteps] syncHistory — initial backfill from '
-            '${start.toIso8601String().split('T').first}',
+      // 1) Always refresh recent days (leaderboard week/month accuracy).
+      final recentStart = todayDate.subtract(
+        const Duration(days: historyResyncDays - 1),
+      );
+      final recentDays = await HealthService.getDailyMetrics(recentStart, today);
+      await upsertDays(userId: userId, days: recentDays);
+
+      // 2) Extend history backwards in bounded chunks when needed.
+      final bool needsOlderBackfill =
+          oldestSynced == null || oldestSynced.isAfter(earliest);
+      if (needsOlderBackfill) {
+        final chunkEnd = oldestSynced == null
+            ? todayDate
+            : oldestSynced.subtract(const Duration(days: 1));
+        var chunkStart = oldestSynced == null
+            ? todayDate.subtract(
+                const Duration(days: initialBackfillDays - 1),
+              )
+            : chunkEnd.subtract(const Duration(days: maxDaysPerSync - 1));
+        if (chunkStart.isBefore(earliest)) chunkStart = earliest;
+
+        if (!chunkEnd.isBefore(chunkStart)) {
+          final olderDays = await HealthService.getDailyMetrics(
+            chunkStart,
+            chunkEnd,
           );
+          await upsertDays(userId: userId, days: olderDays);
+          await prefs.setString(
+            _oldestSyncedKey(userId),
+            chunkStart.toIso8601String().split('T').first,
+          );
+          if (kDebugMode) {
+            // ignore: avoid_print
+            print(
+              '[DailySteps] syncHistory — backfill chunk '
+              '${chunkStart.toIso8601String().split('T').first} → '
+              '${chunkEnd.toIso8601String().split('T').first}',
+            );
+          }
         }
-      } else {
-        final rewind = syncedThrough.subtract(
-          const Duration(days: historyResyncDays),
-        );
-        start = rewind.isBefore(earliest) ? earliest : rewind;
       }
 
-      final days = await HealthService.getDailyMetrics(start, today);
-      await upsertDays(userId: userId, days: days);
       await prefs.setString(
         _syncedThroughKey(userId),
         todayDate.toIso8601String().split('T').first,

@@ -1,10 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/motion_stats.dart';
 import '../models/today_metrics.dart';
 import '../services/daily_steps_service.dart';
-import '../services/group_service.dart';
 import '../services/leaderboard_service.dart';
 import '../services/selected_group_service.dart';
 import '../services/health_service.dart';
@@ -42,7 +43,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     'This Month',
   ];
 
-  final GroupService _groupService = GroupService();
   final LeaderboardService _leaderboardService = LeaderboardService();
   final DailyStepsService _dailyStepsService = DailyStepsService();
 
@@ -63,31 +63,63 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   bool _isLoadingLeaderboard = false;
   bool _isSyncingToday = false;
   bool _reloadRequested = false;
+  DateTime? _lastFocusRefresh;
 
   bool get _hasActiveGroup => selectedGroupService.selectedGroupId != null;
 
   void _onSelectedGroupChanged() {
     if (!mounted) return;
     final selected = selectedGroupService.selectedGroupName;
-    if (selected == null) return;
-    if (_groups.isEmpty || !_groups.contains(selected)) {
-      _loadGroupsAndLeaderboard();
+    if (selected == null) {
+      setState(() {
+        _groups = selectedGroupService.groupNames;
+        _selectedGroupName = null;
+        _groupsLoading = false;
+      });
       return;
     }
-    if (selected == _selectedGroupName) return;
-    setState(() {
-      _selectedGroupName = selected;
-      _loading = true;
-      _error = null;
-    });
-    if (_isLoadingLeaderboard) {
-      _reloadRequested = true;
+    _applyHydratedGroups();
+    if (selected == _selectedGroupName && _leaderboard.isNotEmpty) return;
+    if (selected != _selectedGroupName) {
+      setState(() {
+        _selectedGroupName = selected;
+        _error = null;
+      });
+    }
+    if (!widget.isActive) return;
+    _loadFromSupabase(showLoading: _leaderboard.isEmpty);
+  }
+
+  void _applyHydratedGroups() {
+    final names = selectedGroupService.groupNames;
+    _groups = names;
+    _selectedGroupName =
+        selectedGroupService.selectedGroupName ??
+        (names.isNotEmpty ? names.first : null);
+    _groupsLoading = false;
+  }
+
+  Future<void> _bootstrap({bool forceGroups = false}) async {
+    if (forceGroups) {
+      await selectedGroupService.hydrate(force: true);
     } else {
-      _loadFromSupabase();
+      await selectedGroupService.hydrate();
+    }
+    if (!mounted) return;
+    setState(_applyHydratedGroups);
+    if (!widget.isActive) return;
+    if (_hasActiveGroup) {
+      _loadFromSupabase(showLoading: _leaderboard.isEmpty);
+    } else {
+      setState(() {
+        _leaderboard = [];
+        _loading = false;
+        _error = null;
+      });
     }
   }
 
-  /// After loading health, upsert today plus month-to-date so Week/Month can sum.
+  /// After loading health, upsert today plus recent history in the background.
   void _syncHealthToSupabase(String userId) {
     if (_isSyncingToday) return;
     _isSyncingToday = true;
@@ -97,9 +129,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     }
     Future(() async {
       try {
-        if (!mounted) return;
         await _dailyStepsService.syncHistoryToDate(userId);
-        if (mounted) await _loadFromSupabase(skipSyncAfterReload: true);
       } catch (e, stack) {
         if (kDebugMode) {
           // ignore: avoid_print
@@ -133,7 +163,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     }
   }
 
-  /// Load user's groups from Supabase, set first as selected, then load leaderboard for that group.
+  /// Refresh groups from network (pull-to-refresh) then reload leaderboard.
   Future<void> _loadGroupsAndLeaderboard() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
@@ -152,49 +182,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
         if (!_hasActiveGroup) _loading = false;
       });
     }
-    try {
-      final rows = await _groupService
-          .fetchUserGroups(user.id)
-          .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () => throw Exception('Request timed out'),
-          );
-      if (!mounted) return;
-      final names = rows
-          .map(
-            (r) => (r['groups'] as Map<String, dynamic>?)?['name']?.toString(),
-          )
-          .whereType<String>()
-          .toList();
-      selectedGroupService.setGroupsFromFetchRows(rows);
-      if (!mounted) return;
-      setState(() {
-        _groups = names;
-        _selectedGroupName =
-            selectedGroupService.selectedGroupName ??
-            (names.isNotEmpty ? names.first : null);
-        _groupsLoading = false;
-      });
-      if (_hasActiveGroup) {
-        _loadFromSupabase();
-      } else {
-        if (!mounted) return;
-        setState(() {
-          _leaderboard = [];
-          _loading = false;
-          _error = null;
-        });
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _groups = [];
-        _selectedGroupName = null;
-        _groupsLoading = false;
-        _error = _friendlyNetworkError(e);
-        _loading = false;
-      });
-    }
+    await _bootstrap(forceGroups: true);
+    if (mounted) setState(() => _groupsLoading = false);
   }
 
   String _friendlyNetworkError(Object e) {
@@ -247,7 +236,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       final rows = await _leaderboardService
           .fetchGroupLeaderboard(groupId, range: _selectedRange)
           .timeout(
-            const Duration(seconds: 15),
+            const Duration(seconds: 8),
             onTimeout: () => throw Exception('Request timed out'),
           );
       if (!mounted) return;
@@ -269,23 +258,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       final currentUserId = currentUser?.id;
       final currentUserEmail = currentUser?.email?.toLowerCase();
 
-      var list = <MotionStats>[];
-      Map<String, dynamic>? myRow;
-
-      final filteredRows = rows.where((row) {
-        final isMe = LeaderboardService.isCurrentUserRow(
-          row,
-          userId: currentUserId,
-          email: currentUserEmail,
-        );
-        if (isMe) {
-          myRow = row;
-          return false;
-        }
-        return true;
-      }).toList();
-
-      list = filteredRows
+      var list = rows
           .map(
             (row) => MotionStats(
               name: LeaderboardService.resolveDisplayName(row),
@@ -297,61 +270,24 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
               avatarUrl: row['avatar_url']?.toString(),
               previousRank: null,
-              isCurrentUser: false,
+              isCurrentUser: LeaderboardService.isCurrentUserRow(
+                row,
+                userId: currentUserId,
+                email: currentUserEmail,
+              ),
             ),
           )
           .toList();
 
-      if (currentUserId != null) {
-        TodayMetrics mine = TodayMetrics.zero;
-        try {
-          mine = await _metricsForSelectedRange().timeout(
-            const Duration(seconds: 8),
-            onTimeout: () => TodayMetrics.zero,
-          );
-        } catch (_) {
-          mine = TodayMetrics.zero;
-        }
-
-        String myName = 'Unknown';
-        String? myAvatarUrl;
-
-        if (myRow != null) {
-          myName = LeaderboardService.resolveDisplayName(myRow!);
-          myAvatarUrl = myRow!['avatar_url']?.toString();
-        } else {
-          try {
-            final profile = await ProfileService()
-                .getCurrentProfile()
-                .timeout(const Duration(seconds: 5));
-            myName = profile?.displayLabel ?? currentUserEmail ?? 'Unknown';
-            myAvatarUrl = profile?.avatarUrl;
-          } catch (_) {
-            myName = currentUserEmail ?? 'You';
-          }
-        }
-
-        final me = MotionStats(
-          name: myName,
-          steps: mine.steps,
-          miles: mine.distanceMiles,
-          activeCalories: mine.activeEnergyCalories.round(),
-          exerciseMinutes: mine.exerciseMinutes.round(),
-          avatarUrl: myAvatarUrl,
-          previousRank: null,
-          isCurrentUser: true,
-        );
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print(
-            '[Leaderboard] Injecting local Health for $_selectedRange: name=$myName, steps=${mine.steps}',
-          );
-        }
-        list = [me, ...list];
-        list.sort((a, b) => b.steps.compareTo(a.steps));
-
-        if (!skipSyncAfterReload) {
-          _syncHealthToSupabase(currentUserId);
+      Map<String, dynamic>? myRow;
+      for (final row in rows) {
+        if (LeaderboardService.isCurrentUserRow(
+          row,
+          userId: currentUserId,
+          email: currentUserEmail,
+        )) {
+          myRow = row;
+          break;
         }
       }
 
@@ -365,6 +301,19 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
         _loading = false;
         _error = null;
       });
+
+      if (currentUserId != null) {
+        unawaited(
+          _injectLocalHealthRow(
+            currentUserId: currentUserId,
+            currentUserEmail: currentUserEmail,
+            myRow: myRow,
+            groupId: groupId,
+            skipSyncAfterReload: skipSyncAfterReload,
+            baseList: list,
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       if (groupId != selectedGroupService.selectedGroupId) {
@@ -385,22 +334,105 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     }
   }
 
+  Future<void> _injectLocalHealthRow({
+    required String currentUserId,
+    required String? currentUserEmail,
+    required Map<String, dynamic>? myRow,
+    required String groupId,
+    required bool skipSyncAfterReload,
+    required List<MotionStats> baseList,
+  }) async {
+    TodayMetrics mine = TodayMetrics.zero;
+    try {
+      mine = await _metricsForSelectedRange().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => TodayMetrics.zero,
+      );
+    } catch (_) {
+      mine = TodayMetrics.zero;
+    }
+
+    String myName = 'Unknown';
+    String? myAvatarUrl;
+
+    if (myRow != null) {
+      myName = LeaderboardService.resolveDisplayName(myRow);
+      myAvatarUrl = myRow['avatar_url']?.toString();
+    } else {
+      try {
+        final profile = await ProfileService().getCurrentProfile().timeout(
+          const Duration(seconds: 5),
+        );
+        myName = profile?.displayLabel ?? currentUserEmail ?? 'Unknown';
+        myAvatarUrl = profile?.avatarUrl;
+      } catch (_) {
+        myName = currentUserEmail ?? 'You';
+      }
+    }
+
+    final me = MotionStats(
+      name: myName,
+      steps: mine.steps,
+      miles: mine.distanceMiles,
+      activeCalories: mine.activeEnergyCalories.round(),
+      exerciseMinutes: mine.exerciseMinutes.round(),
+      avatarUrl: myAvatarUrl,
+      previousRank: null,
+      isCurrentUser: true,
+    );
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print(
+        '[Leaderboard] Injecting local Health for $_selectedRange: name=$myName, steps=${mine.steps}',
+      );
+    }
+
+    if (!mounted || groupId != selectedGroupService.selectedGroupId) return;
+    final updated = [...baseList];
+    final meIndex = updated.indexWhere((s) => s.isCurrentUser);
+    if (meIndex >= 0) {
+      updated[meIndex] = me;
+    } else {
+      updated.insert(0, me);
+    }
+    updated.sort((a, b) => b.steps.compareTo(a.steps));
+    setState(() => _leaderboard = updated);
+
+    if (!skipSyncAfterReload) {
+      _syncHealthToSupabase(currentUserId);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     selectedGroupService.addListener(_onSelectedGroupChanged);
     HealthService.accessGeneration.addListener(_healthAccessChanged);
-    _loadGroupsAndLeaderboard();
+    if (selectedGroupService.groupNames.isNotEmpty) {
+      _applyHydratedGroups();
+    }
+    if (widget.isActive) {
+      unawaited(_bootstrap());
+    }
   }
 
   void _healthAccessChanged() {
-    if (!mounted) return;
-    if (_groups.isEmpty) {
-      _loadGroupsAndLeaderboard();
-    } else {
-      _loadFromSupabase(showLoading: false);
-    }
+    if (!mounted || !widget.isActive) return;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final groupId = selectedGroupService.selectedGroupId;
+    if (userId == null || groupId == null || _leaderboard.isEmpty) return;
+    unawaited(
+      _injectLocalHealthRow(
+        currentUserId: userId,
+        currentUserEmail:
+            Supabase.instance.client.auth.currentUser?.email?.toLowerCase(),
+        myRow: null,
+        groupId: groupId,
+        skipSyncAfterReload: false,
+        baseList: _leaderboard.where((s) => !s.isCurrentUser).toList(),
+      ),
+    );
   }
 
   @override
@@ -412,6 +444,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   }
 
   void _refreshOnFocus() {
+    final now = DateTime.now();
+    if (_lastFocusRefresh != null &&
+        now.difference(_lastFocusRefresh!) < const Duration(seconds: 45)) {
+      return;
+    }
+    _lastFocusRefresh = now;
     if (_groups.isEmpty) {
       _loadGroupsAndLeaderboard();
     } else {
@@ -423,7 +461,14 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   void didUpdateWidget(LeaderboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      _refreshOnFocus();
+      if (_groups.isEmpty && selectedGroupService.groupNames.isNotEmpty) {
+        setState(_applyHydratedGroups);
+      }
+      if (_leaderboard.isEmpty && _hasActiveGroup) {
+        unawaited(_bootstrap());
+      } else {
+        _refreshOnFocus();
+      }
     }
   }
 

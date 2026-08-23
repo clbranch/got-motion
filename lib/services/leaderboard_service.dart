@@ -46,19 +46,7 @@ class LeaderboardService {
 
     if (userIds.isEmpty) return [];
 
-    // 2. Fetch profiles for these members
-    final profilesResponse = await _supabase
-        .from('profiles')
-        .select('id, email, display_name, avatar_url')
-        .inFilter('id', userIds);
-
-    final profiles = <String, Map<String, dynamic>>{};
-    for (final p in List<Map<String, dynamic>>.from(profilesResponse)) {
-      final id = p['id']?.toString();
-      if (id != null) profiles[id] = p;
-    }
-
-    // 3. Determine date filter
+    // 2. Determine date filter
     DateTime now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     late DateTime startDate;
@@ -86,16 +74,30 @@ class LeaderboardService {
     final startDateStr = startDate.toIso8601String().split('T').first;
     final endDateStr = endDate.toIso8601String().split('T').first;
 
-    // 4. Fetch daily_steps for these users within the date range
+    // 3–4. Fetch profiles and daily_steps in parallel.
     var stepsQuery = _supabase
         .from('daily_steps')
         .select()
         .inFilter('user_id', userIds);
-    final stepsResponse = date == null
-        ? await stepsQuery.gte('date', startDateStr).lte('date', endDateStr)
-        : await stepsQuery.eq('date', date.toIso8601String().split('T').first);
+    final stepsFuture = date == null
+        ? stepsQuery.gte('date', startDateStr).lte('date', endDateStr)
+        : stepsQuery.eq('date', date.toIso8601String().split('T').first);
 
-    final stepsData = List<Map<String, dynamic>>.from(stepsResponse);
+    final parallel = await Future.wait<dynamic>([
+      _supabase
+          .from('profiles')
+          .select('id, email, display_name, avatar_url')
+          .inFilter('id', userIds),
+      stepsFuture,
+    ]);
+
+    final profiles = <String, Map<String, dynamic>>{};
+    for (final p in List<Map<String, dynamic>>.from(parallel[0] as List)) {
+      final id = p['id']?.toString();
+      if (id != null) profiles[id] = p;
+    }
+
+    final stepsData = List<Map<String, dynamic>>.from(parallel[1] as List);
 
     if (kDebugMode) {
       // ignore: avoid_print

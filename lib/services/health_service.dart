@@ -185,7 +185,8 @@ class HealthService {
           .invokeMethod<dynamic>('getHealthMetrics', {
             'startMs': start.millisecondsSinceEpoch,
             'endMs': end.millisecondsSinceEpoch,
-          });
+          })
+          .timeout(const Duration(seconds: 6));
       if (raw is Map) {
         final data = Map<String, dynamic>.from(raw);
         _nativeCache[key] = (data: data, at: DateTime.now());
@@ -481,30 +482,37 @@ class HealthService {
 
   static Future<TodayMetrics> getMetricsForDay(DateTime date) async {
     try {
-      if (!await _ensureConfiguredAndAuthorized()) return TodayMetrics.zero;
-
-      final startOfDay = _startOfDay(date);
-      final endOfDay = _endOfDay(date);
-      if (!endOfDay.isAfter(startOfDay)) return TodayMetrics.zero;
-
-      final native = await _nativeMetricsWithRetry(startOfDay, endOfDay);
-      final metrics = native != null
-          ? _metricsFromNative(native)
-          : await _fallbackMetrics(startOfDay, endOfDay);
-
-      if (kDebugMode) {
-        debugPrint(
-          '[Health] ${startOfDay.toIso8601String().split('T').first} '
-          'source=${native?['source'] ?? 'fallback'} '
-          'steps=${metrics.steps} miles=${metrics.distanceMiles.toStringAsFixed(2)} '
-          'cal=${metrics.activeEnergyCalories.round()} '
-          'min=${metrics.exerciseMinutes.round()}',
-        );
-      }
-      return metrics;
+      return await _getMetricsForDayUncapped(date).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => TodayMetrics.zero,
+      );
     } catch (_) {
       return TodayMetrics.zero;
     }
+  }
+
+  static Future<TodayMetrics> _getMetricsForDayUncapped(DateTime date) async {
+    if (!await _ensureConfiguredAndAuthorized()) return TodayMetrics.zero;
+
+    final startOfDay = _startOfDay(date);
+    final endOfDay = _endOfDay(date);
+    if (!endOfDay.isAfter(startOfDay)) return TodayMetrics.zero;
+
+    final native = await _nativeMetricsWithRetry(startOfDay, endOfDay);
+    final metrics = native != null
+        ? _metricsFromNative(native)
+        : await _fallbackMetrics(startOfDay, endOfDay);
+
+    if (kDebugMode) {
+      debugPrint(
+        '[Health] ${startOfDay.toIso8601String().split('T').first} '
+        'source=${native?['source'] ?? 'fallback'} '
+        'steps=${metrics.steps} miles=${metrics.distanceMiles.toStringAsFixed(2)} '
+        'cal=${metrics.activeEnergyCalories.round()} '
+        'min=${metrics.exerciseMinutes.round()}',
+      );
+    }
+    return metrics;
   }
 
   static DateTime startOfWeek([DateTime? date]) {

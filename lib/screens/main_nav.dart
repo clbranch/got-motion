@@ -375,7 +375,10 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
         ),
       ),
       _KeepAlive(
-        child: ProfileScreen(scrollController: _tabScrollControllers[2]),
+        child: ProfileScreen(
+          isActive: _currentIndex == 2,
+          scrollController: _tabScrollControllers[2],
+        ),
       ),
       _KeepAlive(
         child: GroupScreen(scrollController: _tabScrollControllers[3]),
