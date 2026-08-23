@@ -48,7 +48,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   String? _selectedGroupName;
 
   List<MotionStats> _leaderboard = [];
-  bool _loading = true;
+  bool _groupsLoading = true;
+  bool _loading = false;
   String? _error;
   String _selectedRange = 'Today';
   String _selectedMetric = 'Steps';
@@ -57,6 +58,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   bool _isLoadingLeaderboard = false;
   bool _isSyncingToday = false;
   bool _reloadRequested = false;
+
+  bool get _hasActiveGroup => selectedGroupService.selectedGroupId != null;
 
   void _onSelectedGroupChanged() {
     if (!mounted) return;
@@ -133,9 +136,16 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       setState(() {
         _groups = [];
         _selectedGroupName = null;
+        _groupsLoading = false;
         _loading = false;
       });
       return;
+    }
+    if (mounted) {
+      setState(() {
+        _groupsLoading = true;
+        if (!_hasActiveGroup) _loading = false;
+      });
     }
     try {
       final rows = await _groupService
@@ -152,15 +162,18 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           .whereType<String>()
           .toList();
       selectedGroupService.setGroupsFromFetchRows(rows);
+      if (!mounted) return;
       setState(() {
         _groups = names;
         _selectedGroupName =
             selectedGroupService.selectedGroupName ??
             (names.isNotEmpty ? names.first : null);
+        _groupsLoading = false;
       });
-      if (_selectedGroupName != null) {
+      if (_hasActiveGroup) {
         _loadFromSupabase();
       } else {
+        if (!mounted) return;
         setState(() {
           _leaderboard = [];
           _loading = false;
@@ -172,6 +185,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       setState(() {
         _groups = [];
         _selectedGroupName = null;
+        _groupsLoading = false;
         _error = _friendlyNetworkError(e);
         _loading = false;
       });
@@ -552,6 +566,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
               _LeaderboardHeader(
                 groups: _groups,
                 selectedGroup: _selectedGroupName,
+                groupsLoading: _groupsLoading,
                 onGroupSelected: (name) {
                   setState(() => _selectedGroupName = name);
                   selectedGroupService.setSelectedGroup(name);
@@ -593,9 +608,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 ),
                 child: KeyedSubtree(
                   key: ValueKey(
-                    '$_selectedRange-$_loading-$_error-${_leaderboard.length}',
+                    '$_selectedRange-$_groupsLoading-$_loading-$_error-${_leaderboard.length}',
                   ),
-                  child: _loading
+                  child: _groupsLoading
+                      ? const SizedBox(height: 8)
+                      : !_hasActiveGroup || _groups.isEmpty
+                      ? const _MessageCard(
+                          message: 'Create or join a group to start competing.',
+                        )
+                      : _loading
                       ? const SizedBox(
                           height: 420,
                           child: Center(
@@ -604,10 +625,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                         )
                       : _error != null
                       ? _MessageCard(message: _error!)
-                      : _groups.isEmpty
-                      ? const _MessageCard(
-                          message: 'Create or join a group to start competing.',
-                        )
                       : _leaderboard.isEmpty
                       ? const _MessageCard(
                           message:
@@ -750,11 +767,13 @@ class _LeaderboardHeader extends StatelessWidget {
   const _LeaderboardHeader({
     required this.groups,
     required this.selectedGroup,
+    required this.groupsLoading,
     required this.onGroupSelected,
   });
 
   final List<String> groups;
   final String? selectedGroup;
+  final bool groupsLoading;
   final ValueChanged<String> onGroupSelected;
 
   Future<void> _showGroupPicker(BuildContext context) async {
@@ -896,7 +915,19 @@ class _LeaderboardHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              if (groups.isNotEmpty)
+              if (groupsLoading)
+                const SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: Padding(
+                    padding: EdgeInsets.all(6),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF5BA9FF),
+                    ),
+                  ),
+                )
+              else if (groups.isNotEmpty)
                 Container(
                   width: 32,
                   height: 32,
