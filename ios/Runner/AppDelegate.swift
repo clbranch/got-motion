@@ -158,7 +158,9 @@ private enum HealthKitDayMetrics {
       if pendingPostAuthRetry && isEmptyPayload(payload) {
         pendingPostAuthRetry = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-          loadDay(start: start, end: end, completion: deliver)
+          loadDay(start: start, end: end) { retryPayload in
+            result(retryPayload)
+          }
         }
         return
       }
@@ -354,7 +356,7 @@ private enum HealthKitDayMetrics {
     }
   }
 
-  private static var readTypes: Set<HKObjectType> {
+  private static func querySourceTotals(
     _ identifier: HKQuantityTypeIdentifier,
     unit: HKUnit,
     start: Date,
