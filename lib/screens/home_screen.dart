@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     goalService.reloadFromCurrentUser();
     syncActivityService.hydrate();
     notificationService.refresh();
+    HealthService.accessGeneration.addListener(_healthAccessChanged);
     _load();
   }
 
@@ -84,7 +85,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     selectedGroupService.removeListener(_groupChanged);
     goalService.removeListener(_goalsChanged);
     notificationService.removeListener(_notificationsChanged);
+    HealthService.accessGeneration.removeListener(_healthAccessChanged);
     super.dispose();
+  }
+
+  void _healthAccessChanged() {
+    if (mounted) _load();
   }
 
   void _groupChanged() {
@@ -123,10 +129,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!mounted || generation != _loadGeneration) return;
 
     final values = await Future.wait<dynamic>([
-      HealthService.getTodayMetrics(),
-      HealthService.getWeekStepsTotal(),
-      HealthService.getWeekStepsByDay(),
-      HealthService.getTodayStandHours(),
+      HealthService.getTodayMetrics().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => TodayMetrics.zero,
+      ),
+      HealthService.getWeekStepsTotal().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => 0,
+      ),
+      HealthService.getWeekStepsByDay().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => List.filled(7, 0),
+      ),
+      HealthService.getTodayStandHours().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => null,
+      ),
     ]);
     if (!mounted || generation != _loadGeneration) return;
 

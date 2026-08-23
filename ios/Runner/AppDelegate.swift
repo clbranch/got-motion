@@ -125,6 +125,8 @@ import UserNotifications
 /// Third-party apps that write to Health (MyZone, Garmin, etc.) are added on top.
 private enum HealthKitDayMetrics {
   static let store = HKHealthStore()
+  private static var didRequestReadAuthorization = false
+  private static var pendingPostAuthRetry = false
 
   static func fetch(call: FlutterMethodCall, result: @escaping FlutterResult) {
     guard HKHealthStore.isHealthDataAvailable() else {
@@ -152,9 +154,37 @@ private enum HealthKitDayMetrics {
       return
     }
 
-    store.requestAuthorization(toShare: nil, read: readTypes) { _, _ in
-      loadDay(start: start, end: end, result: result)
+    let deliver: ([String: Any]) -> Void = { payload in
+      if pendingPostAuthRetry && isEmptyPayload(payload) {
+        pendingPostAuthRetry = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+          loadDay(start: start, end: end, completion: deliver)
+        }
+        return
+      }
+      pendingPostAuthRetry = false
+      result(payload)
     }
+
+    if didRequestReadAuthorization {
+      loadDay(start: start, end: end, completion: deliver)
+      return
+    }
+
+    didRequestReadAuthorization = true
+    pendingPostAuthRetry = true
+    store.requestAuthorization(toShare: nil, read: readTypes) { _, _ in
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+        loadDay(start: start, end: end, completion: deliver)
+      }
+    }
+  }
+
+  private static func isEmptyPayload(_ payload: [String: Any]) -> Bool {
+    let steps = payload["steps"] as? Double ?? 0
+    let calories = payload["calories"] as? Double ?? 0
+    let minutes = payload["exerciseMinutes"] as? Double ?? 0
+    return steps <= 0 && calories <= 0 && minutes <= 0
   }
 
   private static var readTypes: Set<HKObjectType> {
@@ -183,7 +213,7 @@ private enum HealthKitDayMetrics {
   private static func loadDay(
     start: Date,
     end: Date,
-    result: @escaping FlutterResult
+    completion: @escaping ([String: Any]) -> Void
   ) {
     let group = DispatchGroup()
     let lock = NSLock()
@@ -320,11 +350,11 @@ private enum HealthKitDayMetrics {
       if let standHours {
         payload["standHours"] = standHours
       }
-      result(payload)
+      completion(payload)
     }
   }
 
-  private static func querySourceTotals(
+  private static var readTypes: Set<HKObjectType> {
     _ identifier: HKQuantityTypeIdentifier,
     unit: HKUnit,
     start: Date,

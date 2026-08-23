@@ -37,6 +37,92 @@ class HealthService {
       : _iosTypes;
 
   static bool _configured = false;
+  static bool _readAuthorizationRequested = false;
+
+  /// Bumps when Health access may have changed — Home/Leaderboard listen and reload.
+  static final ValueNotifier<int> accessGeneration = ValueNotifier(0);
+
+  static void _notifyAccessChanged() {
+    accessGeneration.value++;
+  }
+
+  static void clearNativeCache() {
+    _nativeCache.clear();
+  }
+
+  static Future<void> _configure() async {
+    if (_configured) return;
+    await _health.configure();
+    _configured = true;
+  }
+
+  /// Prompts for read access once per session (unless [force]). Clears caches and
+  /// waits briefly so HealthKit can propagate after the user taps Allow.
+  static Future<bool> requestReadAuthorization({bool force = false}) async {
+    try {
+      await _configure();
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final available = await _health.isHealthConnectAvailable();
+        if (!available) return false;
+      }
+      if (_readAuthorizationRequested && !force) return true;
+      _readAuthorizationRequested = true;
+
+      final types = List<HealthDataType>.from(_dashboardTypes);
+      final permissions = List<HealthDataAccess>.filled(
+        types.length,
+        HealthDataAccess.READ,
+      );
+      final granted = await _health.requestAuthorization(
+        types,
+        permissions: permissions,
+      );
+      clearNativeCache();
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+      _notifyAccessChanged();
+      return granted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> _ensureConfiguredAndAuthorized({
+    bool writeWorkouts = false,
+  }) async {
+    try {
+      await _configure();
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final available = await _health.isHealthConnectAvailable();
+        if (!available) return false;
+      }
+      if (writeWorkouts) {
+        final types = List<HealthDataType>.from(_dashboardTypes);
+        final permissions = List<HealthDataAccess>.filled(
+          types.length,
+          HealthDataAccess.READ,
+        );
+        final workoutIndex = types.indexOf(HealthDataType.WORKOUT);
+        if (workoutIndex >= 0) {
+          permissions[workoutIndex] = HealthDataAccess.READ_WRITE;
+        } else {
+          types.add(HealthDataType.WORKOUT);
+          permissions.add(HealthDataAccess.READ_WRITE);
+        }
+        return await _health.requestAuthorization(
+          types,
+          permissions: permissions,
+        );
+      }
+      if (!_readAuthorizationRequested) {
+        return await requestReadAuthorization();
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static DateTime _startOfLocalDay() {
     final now = DateTime.now();
@@ -51,41 +137,6 @@ class HealthService {
     final tomorrow = start.add(const Duration(days: 1));
     final now = DateTime.now();
     return tomorrow.isAfter(now) ? now : tomorrow;
-  }
-
-  static Future<bool> _ensureConfiguredAndAuthorized({
-    bool writeWorkouts = false,
-  }) async {
-    try {
-      if (!_configured) {
-        await _health.configure();
-        _configured = true;
-      }
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        final available = await _health.isHealthConnectAvailable();
-        if (!available) return false;
-      }
-      final types = List<HealthDataType>.from(_dashboardTypes);
-      final permissions = List<HealthDataAccess>.filled(
-        types.length,
-        HealthDataAccess.READ,
-      );
-      if (writeWorkouts) {
-        final workoutIndex = types.indexOf(HealthDataType.WORKOUT);
-        if (workoutIndex >= 0) {
-          permissions[workoutIndex] = HealthDataAccess.READ_WRITE;
-        } else {
-          types.add(HealthDataType.WORKOUT);
-          permissions.add(HealthDataAccess.READ_WRITE);
-        }
-      }
-      return await _health.requestAuthorization(
-        types,
-        permissions: permissions,
-      );
-    } catch (_) {
-      return false;
-    }
   }
 
   /// Writes a Got Motion workout into Apple Health / Health Connect.
@@ -144,6 +195,34 @@ class HealthService {
     } catch (_) {
       return null;
     }
+  }
+
+  static bool _nativePayloadHasData(Map<String, dynamic> raw) {
+    final steps = (raw['steps'] as num?)?.round() ?? 0;
+    final calories = (raw['calories'] as num?)?.round() ?? 0;
+    final minutes = (raw['exerciseMinutes'] as num?)?.round() ?? 0;
+    return steps > 0 || calories > 0 || minutes > 0;
+  }
+
+  /// HealthKit can return empty samples until permissions finish propagating.
+  static Future<Map<String, dynamic>?> _nativeMetricsWithRetry(
+    DateTime start,
+    DateTime end, {
+    int attempts = 2,
+  }) async {
+    Map<String, dynamic>? last;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) {
+        clearNativeCache();
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      }
+      last = await _nativeMetrics(start, end);
+      if (last == null) continue;
+      if (_nativePayloadHasData(last) || attempt == attempts - 1) {
+        return last;
+      }
+    }
+    return last;
   }
 
   static TodayMetrics _metricsFromNative(Map<String, dynamic> raw) {
@@ -353,8 +432,7 @@ class HealthService {
 
   static Future<UserStepData> requestAndFetchSteps() async {
     try {
-      final granted = await _ensureConfiguredAndAuthorized();
-      if (!granted) return UserStepData.zero;
+      await requestReadAuthorization(force: true);
 
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month, 1);
@@ -409,7 +487,7 @@ class HealthService {
       final endOfDay = _endOfDay(date);
       if (!endOfDay.isAfter(startOfDay)) return TodayMetrics.zero;
 
-      final native = await _nativeMetrics(startOfDay, endOfDay);
+      final native = await _nativeMetricsWithRetry(startOfDay, endOfDay);
       final metrics = native != null
           ? _metricsFromNative(native)
           : await _fallbackMetrics(startOfDay, endOfDay);
@@ -503,7 +581,9 @@ class HealthService {
           out.add(0);
           continue;
         }
-        final native = await _nativeMetrics(dayStart, dayEnd);
+        final native = d == now.weekday - 1
+            ? await _nativeMetricsWithRetry(dayStart, dayEnd)
+            : await _nativeMetrics(dayStart, dayEnd);
         if (native != null) {
           out.add((native['steps'] as num?)?.round() ?? 0);
         } else {
@@ -538,7 +618,7 @@ class HealthService {
       final startOfDay = _startOfDay(date);
       final endOfDay = _endOfDay(date);
       if (!endOfDay.isAfter(startOfDay)) return null;
-      final native = await _nativeMetrics(startOfDay, endOfDay);
+      final native = await _nativeMetricsWithRetry(startOfDay, endOfDay);
       if (native != null) return _standFromNative(native);
 
       final points = await _read(

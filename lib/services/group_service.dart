@@ -167,61 +167,39 @@ class GroupService {
     if (normalizedCode.isEmpty) {
       throw GroupNotFound('Please enter an invite code.');
     }
-    // ignore: avoid_print
-    print(
-      '[GroupService] joinByInviteCode: looking up group with invite_code=$normalizedCode',
-    );
-    List<Map<String, dynamic>> groups;
+
     try {
-      final groupRows = await _supabase
-          .from('groups')
-          .select('id, name')
-          .eq('invite_code', normalizedCode)
-          .limit(1);
-      groups = List<Map<String, dynamic>>.from(groupRows);
-    } catch (e, st) {
+      final response = await _supabase.rpc(
+        'join_group_by_invite_code',
+        params: {'p_invite_code': normalizedCode},
+      );
+      final rows = List<Map<String, dynamic>>.from(response as List);
+      if (rows.isEmpty) {
+        throw GroupNotFound('Invalid invite code. Check the code and try again.');
+      }
+      final row = rows.first;
+      final groupId = row['group_id']?.toString();
+      final groupName = row['group_name']?.toString() ?? '';
+      if (groupId == null || groupId.isEmpty) {
+        throw GroupNotFound('Invalid invite code. Check the code and try again.');
+      }
+      return JoinGroupResult(groupId: groupId, groupName: groupName);
+    } on PostgrestException catch (e, st) {
       // ignore: avoid_print
-      print('[GroupService] joinByInviteCode groups lookup error: $e');
+      print('[GroupService] joinByInviteCode rpc error: ${e.message}');
       // ignore: avoid_print
       print('[GroupService] joinByInviteCode stackTrace: $st');
+      final message = e.message.toLowerCase();
+      if (message.contains('already in group') ||
+          message.contains('already')) {
+        throw AlreadyInGroup("You're already in this group.");
+      }
+      if (message.contains('invalid invite code') ||
+          message.contains('invite code')) {
+        throw GroupNotFound('Invalid invite code. Check the code and try again.');
+      }
       rethrow;
     }
-    if (groups.isEmpty) {
-      // ignore: avoid_print
-      print('[GroupService] joinByInviteCode: no group found for code');
-      throw GroupNotFound('Invalid invite code. Check the code and try again.');
-    }
-    final group = groups.single;
-    final groupId = group['id'] as String;
-    final groupName = group['name'] as String? ?? '';
-
-    final existing = await _supabase
-        .from('group_members')
-        .select('user_id')
-        .eq('user_id', userId)
-        .eq('group_id', groupId)
-        .maybeSingle();
-
-    if (existing != null) {
-      // ignore: avoid_print
-      print('[GroupService] joinByInviteCode: user already in group');
-      throw AlreadyInGroup("You're already in this group.");
-    }
-
-    try {
-      await _supabase.from('group_members').insert({
-        'user_id': userId,
-        'group_id': groupId,
-      });
-    } catch (e, st) {
-      // ignore: avoid_print
-      print('[GroupService] joinByInviteCode group_members insert error: $e');
-      // ignore: avoid_print
-      print('[GroupService] joinByInviteCode group_members stackTrace: $st');
-      rethrow;
-    }
-
-    return JoinGroupResult(groupId: groupId, groupName: groupName);
   }
 
   /// Fetches members of a group for display. Returns list of { user_id, email?, display_name?, avatar_url? }.

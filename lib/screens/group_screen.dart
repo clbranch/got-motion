@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/daily_steps_service.dart';
 import '../services/group_invite_service.dart';
 import '../services/group_service.dart';
 import '../services/selected_group_service.dart';
@@ -319,7 +321,9 @@ class _GroupScreenState extends State<GroupScreen> {
     try {
       final result = await _groupService.joinByInviteCode(user.id, code);
       if (!mounted) return;
+      await selectedGroupService.hydrate(force: true);
       selectedGroupService.addGroupAndSelect(result.groupId, result.groupName);
+      unawaited(DailyStepsService().syncHistoryToDate(user.id));
       await _loadGroupsAndMembers();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

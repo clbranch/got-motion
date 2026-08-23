@@ -82,7 +82,7 @@ class _SettingsHealthPermissionsScreenState
       }
       return;
     }
-    await HealthService.requestAndFetchSteps();
+    await HealthService.requestReadAuthorization(force: true);
     if (!mounted) return;
     setState(() => _checking = false);
     if (!showMessage) return;

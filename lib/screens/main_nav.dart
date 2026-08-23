@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/deep_link_handler.dart';
 import '../services/goal_service.dart';
+import '../services/daily_steps_service.dart';
 import '../services/group_invite_service.dart';
 import '../services/group_service.dart';
 import '../services/health_hub_service.dart';
@@ -201,11 +202,15 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
     );
 
     try {
-      final result = await GroupService().joinByInviteCode(user.id, code);
+      final result = await GroupService()
+          .joinByInviteCode(user.id, code)
+          .timeout(const Duration(seconds: 20));
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(); // dismiss loading
 
+      await selectedGroupService.hydrate(force: true);
       selectedGroupService.addGroupAndSelect(result.groupId, result.groupName);
+      unawaited(DailyStepsService().syncHistoryToDate(user.id));
       _selectTab(3);
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -294,10 +299,12 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
         try {
           final result = await _inviteService.acceptInvite(invite.id, user.id);
           if (!mounted) return;
+          await selectedGroupService.hydrate(force: true);
           selectedGroupService.addGroupAndSelect(
             result.groupId,
             result.groupName,
           );
+          unawaited(DailyStepsService().syncHistoryToDate(user.id));
           _selectTab(3);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

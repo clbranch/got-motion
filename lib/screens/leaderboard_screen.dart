@@ -59,8 +59,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   bool _reloadRequested = false;
 
   void _onSelectedGroupChanged() {
-    if (!mounted || _groups.isEmpty) return;
+    if (!mounted) return;
     final selected = selectedGroupService.selectedGroupName;
+    if (selected == null) return;
+    if (_groups.isEmpty || !_groups.contains(selected)) {
+      _loadGroupsAndLeaderboard();
+      return;
+    }
     if (selected == _selectedGroupName) return;
     setState(() {
       _selectedGroupName = selected;
@@ -279,7 +284,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           .toList();
 
       if (currentUserId != null) {
-        final mine = await _metricsForSelectedRange();
+        TodayMetrics mine = TodayMetrics.zero;
+        try {
+          mine = await _metricsForSelectedRange().timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => TodayMetrics.zero,
+          );
+        } catch (_) {
+          mine = TodayMetrics.zero;
+        }
 
         String myName = 'Unknown';
         String? myAvatarUrl;
@@ -288,9 +301,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           myName = LeaderboardService.resolveDisplayName(myRow!);
           myAvatarUrl = myRow!['avatar_url']?.toString();
         } else {
-          final profile = await ProfileService().getCurrentProfile();
-          myName = profile?.displayLabel ?? currentUserEmail ?? 'Unknown';
-          myAvatarUrl = profile?.avatarUrl;
+          try {
+            final profile = await ProfileService()
+                .getCurrentProfile()
+                .timeout(const Duration(seconds: 5));
+            myName = profile?.displayLabel ?? currentUserEmail ?? 'Unknown';
+            myAvatarUrl = profile?.avatarUrl;
+          } catch (_) {
+            myName = currentUserEmail ?? 'You';
+          }
         }
 
         final me = MotionStats(
@@ -352,13 +371,24 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     selectedGroupService.addListener(_onSelectedGroupChanged);
+    HealthService.accessGeneration.addListener(_healthAccessChanged);
     _loadGroupsAndLeaderboard();
+  }
+
+  void _healthAccessChanged() {
+    if (!mounted) return;
+    if (_groups.isEmpty) {
+      _loadGroupsAndLeaderboard();
+    } else {
+      _loadFromSupabase(showLoading: false);
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     selectedGroupService.removeListener(_onSelectedGroupChanged);
+    HealthService.accessGeneration.removeListener(_healthAccessChanged);
     super.dispose();
   }
 
