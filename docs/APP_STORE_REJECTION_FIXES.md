@@ -49,9 +49,13 @@ Thank you for the feedback.
 
 4.8 — We added Sign in with Apple as an equivalent login option alongside Google and email/password. Sign in with Apple limits data to name/email, supports Hide My Email, and does not collect advertising interactions.
 
-Please re-review build 1.0 (16).
+Please re-review build 1.0 (17).
 ```
 
 ### 5. Demo account for Review
 
 Use the existing App Review account if still valid, or create a fresh email/password account and put it in **App Review Information**.
+
+### Note — Transporter / UIBackgroundModes
+
+Do **not** put `healthkit` in `UIBackgroundModes`. App Store validation rejects it (409). Background HealthKit uses the entitlement `com.apple.developer.healthkit.background-delivery` only.
