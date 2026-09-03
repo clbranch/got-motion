@@ -112,7 +112,7 @@ class LeaderboardService {
       }
     }
 
-    // 5. Aggregate stats per user
+    // 5. Aggregate stats per user (last_synced_at = newest synced_at in range)
     final aggregatedStats = <String, Map<String, dynamic>>{};
     for (final uid in userIds) {
       aggregatedStats[uid] = {
@@ -120,6 +120,7 @@ class LeaderboardService {
         'total_miles': 0.0,
         'total_active_calories': 0,
         'total_exercise_minutes': 0,
+        'last_synced_at': null as DateTime?,
       };
     }
 
@@ -134,6 +135,16 @@ class LeaderboardService {
             (row['active_calories'] as num?)?.toInt() ?? 0;
         aggregatedStats[uid]!['total_exercise_minutes'] +=
             (row['exercise_minutes'] as num?)?.toInt() ?? 0;
+        final syncedRaw = row['synced_at']?.toString();
+        final syncedAt = syncedRaw == null
+            ? null
+            : DateTime.tryParse(syncedRaw)?.toLocal();
+        if (syncedAt != null) {
+          final prev = aggregatedStats[uid]!['last_synced_at'] as DateTime?;
+          if (prev == null || syncedAt.isAfter(prev)) {
+            aggregatedStats[uid]!['last_synced_at'] = syncedAt;
+          }
+        }
       }
     }
 
@@ -142,6 +153,7 @@ class LeaderboardService {
     for (final uid in userIds) {
       final profile = profiles[uid];
       final stats = aggregatedStats[uid]!;
+      final lastSynced = stats['last_synced_at'] as DateTime?;
 
       results.add({
         'user_id': uid,
@@ -152,6 +164,7 @@ class LeaderboardService {
         'total_miles': stats['total_miles'],
         'total_active_calories': stats['total_active_calories'],
         'total_exercise_minutes': stats['total_exercise_minutes'],
+        'last_synced_at': lastSynced?.toUtc().toIso8601String(),
       });
     }
 
@@ -231,5 +244,24 @@ class LeaderboardService {
     final rowEmail = row['email']?.toString().toLowerCase();
     return (userId != null && rowUserId == userId) ||
         (email != null && rowEmail == email);
+  }
+
+  static DateTime? parseLastSyncedAt(Map<String, dynamic> row) {
+    final raw = row['last_synced_at']?.toString();
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw)?.toLocal();
+  }
+
+  /// Short label for leaderboard rows (“Synced 12m ago”, “Not synced today”).
+  static String syncLabel(DateTime? lastSyncedAt, {DateTime? now}) {
+    final localNow = now ?? DateTime.now();
+    if (lastSyncedAt == null) return 'Not synced yet';
+    final diff = localNow.difference(lastSyncedAt);
+    if (diff.isNegative || diff.inSeconds < 90) return 'Synced just now';
+    if (diff.inMinutes < 60) return 'Synced ${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return 'Synced ${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'Synced yesterday';
+    if (diff.inDays < 7) return 'Synced ${diff.inDays}d ago';
+    return 'Synced ${lastSyncedAt.month}/${lastSyncedAt.day}';
   }
 }

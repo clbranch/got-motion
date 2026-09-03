@@ -127,46 +127,60 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _load() async {
     final generation = ++_loadGeneration;
-    await selectedGroupService.hydrate();
-    if (!mounted || generation != _loadGeneration) return;
+    try {
+      await selectedGroupService.hydrate().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {},
+      );
+      if (!mounted || generation != _loadGeneration) return;
 
-    final values = await Future.wait<dynamic>([
-      HealthService.getTodayMetrics().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => TodayMetrics.zero,
-      ),
-      HealthService.getWeekStepsTotal().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => 0,
-      ),
-      HealthService.getWeekStepsByDay().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => List.filled(7, 0),
-      ),
-      HealthService.getTodayStandHours().timeout(
-        const Duration(seconds: 10),
+      final values = await Future.wait<dynamic>([
+        HealthService.getTodayMetrics().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => TodayMetrics.zero,
+        ),
+        HealthService.getWeekStepsTotal().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => 0,
+        ),
+        HealthService.getWeekStepsByDay().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => List.filled(7, 0),
+        ),
+        HealthService.getTodayStandHours().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => null,
+        ),
+      ]);
+      if (!mounted || generation != _loadGeneration) return;
+
+      final today = values[0] as TodayMetrics;
+      final leaders = await _fetchLeaders(today).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => <MotionStats>[],
+      );
+      if (!mounted || generation != _loadGeneration) return;
+      final active = await workoutLogService.getActiveSession().timeout(
+        const Duration(seconds: 3),
         onTimeout: () => null,
-      ),
-    ]);
-    if (!mounted || generation != _loadGeneration) return;
-
-    final today = values[0] as TodayMetrics;
-    final leaders = await _fetchLeaders(today);
-    if (!mounted || generation != _loadGeneration) return;
-    final active = await workoutLogService.getActiveSession();
-    if (!mounted || generation != _loadGeneration) return;
-    setState(() {
-      _today = today;
-      _weekTotal = values[1] as int;
-      _week = values[2] as List<int>;
-      _standHours = values[3] as double?;
-      _leaders = leaders;
-      _rank = _findRank(leaders);
-      _activeWorkout = active;
-      _loading = false;
-    });
-    _sync(today);
-    _maybeCelebrateGoals(today);
+      );
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _today = today;
+        _weekTotal = values[1] as int;
+        _week = values[2] as List<int>;
+        _standHours = values[3] as double?;
+        _leaders = leaders;
+        _rank = _findRank(leaders);
+        _activeWorkout = active;
+        _loading = false;
+      });
+      _sync(today);
+      _maybeCelebrateGoals(today);
+    } catch (_) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() => _loading = false);
+    }
   }
 
   Future<void> _resumeActiveWorkout() async {
@@ -243,11 +257,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 (row['total_exercise_minutes'] as num?)?.toInt() ?? 0,
             avatarUrl: row['avatar_url']?.toString(),
             previousRank: null,
+            lastSyncedAt: LeaderboardService.parseLastSyncedAt(row),
           ),
         );
       }
       if (myAvatar == null || myAvatar.isEmpty) {
-        final profile = await ProfileService().getCurrentProfile();
+        final profile = await ProfileService().getCurrentProfile().timeout(
+          const Duration(seconds: 4),
+          onTimeout: () => null,
+        );
         myAvatar = profile?.avatarUrl ?? profile?.googleAvatarUrl;
       }
       final me = MotionStats(
@@ -259,6 +277,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         avatarUrl: myAvatar,
         previousRank: null,
         isCurrentUser: true,
+        lastSyncedAt: DateTime.now(),
       );
       return [me, ...others]..sort((a, b) => b.steps.compareTo(a.steps));
     } catch (_) {

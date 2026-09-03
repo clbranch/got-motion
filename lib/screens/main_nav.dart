@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/deep_link_handler.dart';
 import '../services/goal_service.dart';
+import '../services/background_health_sync_service.dart';
 import '../services/daily_steps_service.dart';
 import '../services/group_invite_service.dart';
 import '../services/group_service.dart';
@@ -130,6 +131,7 @@ class _MainNavState extends State<MainNav> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_checkDailyGoalCelebration());
+      unawaited(backgroundHealthSyncService.syncToday(reason: 'resume'));
     }
   }
 

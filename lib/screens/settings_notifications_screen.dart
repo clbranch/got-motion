@@ -158,7 +158,7 @@ class _SettingsNotificationsScreenState
                   const SettingsPageHeader(
                     title: 'Notifications',
                     subtitle:
-                        'Choose which moments Got Motion should call out.',
+                        'Leaderboard standings for your groups — not generic get-moving spam.',
                   ),
                   const SizedBox(height: 24),
                   SettingsPanel(
@@ -173,7 +173,7 @@ class _SettingsNotificationsScreenState
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Stay in the competition',
+                                'Know where you stand',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 19,
@@ -182,7 +182,7 @@ class _SettingsNotificationsScreenState
                               ),
                               SizedBox(height: 5),
                               Text(
-                                'Useful nudges for rank moves and catch-ups — not every step.',
+                                'Digests when you’re top 3 in a group, with how far you are from 1st.',
                                 style: TextStyle(
                                   color: settingsMuted,
                                   fontSize: 14,
@@ -234,41 +234,26 @@ class _SettingsNotificationsScreenState
                         _toggleRow(
                           icon: Icons.emoji_events_outlined,
                           color: const Color(0xFFFFB547),
-                          title: 'Rank changes',
-                          subtitle: 'When you move up or drop on the board',
-                          value: prefs.rankChanges,
+                          title: 'Leaderboard digests',
+                          subtitle:
+                              'Top 3 in your groups + gap to 1st (one digest)',
+                          value: prefs.rankChanges || prefs.groupActivity,
                           enabled: prefs.pushEnabled,
-                          onChanged: (v) =>
-                              _save(prefs.copyWith(rankChanges: v)),
-                        ),
-                        const SettingsDivider(),
-                        _toggleRow(
-                          icon: Icons.directions_walk_rounded,
-                          color: settingsAccent,
-                          title: 'Catch-up reminders',
-                          subtitle: 'When you’re close to first place',
-                          value: prefs.catchUpReminders,
-                          enabled: prefs.pushEnabled,
-                          onChanged: (v) =>
-                              _save(prefs.copyWith(catchUpReminders: v)),
-                        ),
-                        const SettingsDivider(),
-                        _toggleRow(
-                          icon: Icons.groups_rounded,
-                          color: const Color(0xFF38D6C5),
-                          title: 'Group activity',
-                          subtitle: 'Leader updates visible on the leaderboard',
-                          value: prefs.groupActivity,
-                          enabled: prefs.pushEnabled,
-                          onChanged: (v) =>
-                              _save(prefs.copyWith(groupActivity: v)),
+                          onChanged: (v) => _save(
+                            prefs.copyWith(
+                              rankChanges: v,
+                              groupActivity: v,
+                              catchUpReminders: false,
+                            ),
+                          ),
                         ),
                         const SettingsDivider(),
                         _toggleRow(
                           icon: Icons.workspace_premium_rounded,
                           color: const Color(0xFF16D6A1),
                           title: 'Weekly recap / awards',
-                          subtitle: 'Monday recap of last week\'s category leaders',
+                          subtitle:
+                              'Monday recap of last week\'s category leaders',
                           value: prefs.weeklyRecap,
                           enabled: prefs.pushEnabled,
                           onChanged: (v) =>
@@ -291,7 +276,7 @@ class _SettingsNotificationsScreenState
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'In-app alerts work now. Server-delivered iPhone push needs APNs credentials on Supabase (see docs/PUSH_NOTIFICATIONS_SETUP.md). Preferences and device tokens are stored for your account.',
+                            'We don’t send “get moving” morning/evening spam. Digests only fire when you’re top 3 in a group.',
                             style: TextStyle(
                               color: settingsMuted,
                               fontSize: 13,

@@ -52,6 +52,7 @@ class DailyStepsService {
       'miles': miles,
       'active_calories': activeCalories,
       'exercise_minutes': exerciseMinutes,
+      'synced_at': DateTime.now().toUtc().toIso8601String(),
     };
 
     if (kDebugMode) {
@@ -104,6 +105,7 @@ class DailyStepsService {
             'miles': day.metrics.distanceMiles,
             'active_calories': day.metrics.activeEnergyCalories.round(),
             'exercise_minutes': day.metrics.exerciseMinutes.round(),
+            'synced_at': DateTime.now().toUtc().toIso8601String(),
           },
         )
         .toList();

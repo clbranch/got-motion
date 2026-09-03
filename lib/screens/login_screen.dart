@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -63,6 +66,15 @@ class _LoginScreenState extends State<LoginScreen> {
     Navigator.of(context).pushNamed('/reset-password');
   }
 
+  Future<void> _signInWithApple() async {
+    _clearError();
+    setState(() => _loading = true);
+    final error = await AuthService.signInWithApple();
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) setState(() => _errorMessage = error);
+  }
+
   Future<void> _signInWithGoogle() async {
     _clearError();
     setState(() => _loading = true);
@@ -117,6 +129,29 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) ...[
+                          FilledButton.icon(
+                            onPressed: _loading ? null : _signInWithApple,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: const FaIcon(
+                              FontAwesomeIcons.apple,
+                              size: 20,
+                              color: Colors.black,
+                            ),
+                            label: const Text(
+                              'Continue with Apple',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         FilledButton.icon(
                           onPressed: _loading ? null : _signInWithGoogle,
                           style: FilledButton.styleFrom(

@@ -9,6 +9,7 @@ class MotionStats {
     this.avatarUrl,
     this.previousRank,
     this.isCurrentUser = false,
+    this.lastSyncedAt,
   });
 
   final String name;
@@ -23,4 +24,7 @@ class MotionStats {
   /// Previous period rank; null treated as same as current rank (delta = 0).
   final int? previousRank;
   final bool isCurrentUser;
+
+  /// When this member's device last uploaded Health totals for the period.
+  final DateTime? lastSyncedAt;
 }

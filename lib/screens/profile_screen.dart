@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -37,11 +38,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _dailyStepsService = DailyStepsService();
   TodayMetrics _today = TodayMetrics.zero;
   ProfileData? _profile;
-  List<int> _week = List.filled(7, 0);
   List<LoggedWorkout> _recentWorkouts = const [];
   ActiveWorkoutSession? _activeWorkout;
   bool _loading = true;
   bool _savingAvatar = false;
+
+  /// Personal history range on Profile (not the group leaderboard).
+  String _historyRange = 'This Week'; // This Week | This Month | past YYYY-MM
+  List<({DateTime date, int steps})> _historyDays = const [];
+  bool _historyLoading = false;
 
   @override
   void initState() {
@@ -54,7 +59,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void didUpdateWidget(ProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isActive && !oldWidget.isActive && _loading) {
+    if (widget.isActive && !oldWidget.isActive) {
       _load();
     }
   }
@@ -75,35 +80,135 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) setState(() => _loading = false);
       return;
     }
-    final results = await Future.wait<dynamic>([
-      HealthService.getTodayMetrics().timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => TodayMetrics.zero,
-      ),
-      HealthService.getWeekStepsByDay().timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => List.filled(7, 0),
-      ),
-      _profileService.getCurrentProfile().timeout(
-        const Duration(seconds: 8),
+    try {
+      final results = await Future.wait<dynamic>([
+        HealthService.getTodayMetrics().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => TodayMetrics.zero,
+        ),
+        _profileService.getCurrentProfile().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => null,
+        ),
+      ]);
+      if (!mounted) return;
+      final today = results[0] as TodayMetrics;
+      final recent = await workoutLogService.recentForSelectedGroup().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => const <LoggedWorkout>[],
+      );
+      final active = await workoutLogService.getActiveSession().timeout(
+        const Duration(seconds: 3),
         onTimeout: () => null,
-      ),
-    ]);
-    if (!mounted) return;
-    final today = results[0] as TodayMetrics;
-    final recent = await workoutLogService.recentForSelectedGroup();
-    final active = await workoutLogService.getActiveSession();
-    if (!mounted) return;
-    setState(() {
-      _today = today;
-      _week = results[1] as List<int>;
-      _profile = results[2] as ProfileData?;
-      _recentWorkouts = recent;
-      _activeWorkout = active;
-      _loading = false;
-    });
-    _syncToday(user.id, today);
-    _maybeCelebrateGoals(user.id, goalService.goals, today);
+      );
+      if (!mounted) return;
+      setState(() {
+        _today = today;
+        _profile = results[1] as ProfileData?;
+        _recentWorkouts = recent;
+        _activeWorkout = active;
+        _loading = false;
+      });
+      _syncToday(user.id, today);
+      _maybeCelebrateGoals(user.id, goalService.goals, today);
+      unawaited(_loadHistory(user.id));
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadHistory(String userId) async {
+    if (_historyLoading) return;
+    setState(() => _historyLoading = true);
+    try {
+      final now = DateTime.now();
+      late DateTime start;
+      late DateTime end;
+      if (_historyRange == 'This Week') {
+        start = DateTime(now.year, now.month, now.day)
+            .subtract(Duration(days: now.weekday - 1));
+        end = DateTime(now.year, now.month, now.day);
+      } else if (_historyRange == 'This Month') {
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime(now.year, now.month, now.day);
+      } else {
+        // past YYYY-MM
+        final parts = _historyRange.split('-');
+        final year = int.tryParse(parts[0]) ?? now.year;
+        final month = int.tryParse(parts[1]) ?? now.month;
+        start = DateTime(year, month, 1);
+        end = DateTime(year, month + 1, 0);
+      }
+
+      final startStr = start.toIso8601String().split('T').first;
+      final endStr = end.toIso8601String().split('T').first;
+      final rows = await Supabase.instance.client
+          .from('daily_steps')
+          .select('date, steps')
+          .eq('user_id', userId)
+          .gte('date', startStr)
+          .lte('date', endStr)
+          .order('date')
+          .timeout(const Duration(seconds: 8));
+
+      final byDate = <String, int>{};
+      for (final row in List<Map<String, dynamic>>.from(rows as List)) {
+        final d = row['date']?.toString() ?? '';
+        byDate[d] = (row['steps'] as num?)?.toInt() ?? 0;
+      }
+
+      final days = <({DateTime date, int steps})>[];
+      var cursor = start;
+      while (!cursor.isAfter(end)) {
+        final key = cursor.toIso8601String().split('T').first;
+        days.add((date: cursor, steps: byDate[key] ?? 0));
+        cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _historyDays = days;
+        _historyLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _historyLoading = false);
+    }
+  }
+
+  List<String> get _historyOptions {
+    final now = DateTime.now();
+    final options = <String>['This Week', 'This Month'];
+    // Offer the prior 5 calendar months (enough once history exists).
+    for (var i = 1; i <= 5; i++) {
+      final m = DateTime(now.year, now.month - i, 1);
+      options.add(
+        '${m.year}-${m.month.toString().padLeft(2, '0')}',
+      );
+    }
+    return options;
+  }
+
+  String _historyLabel(String key) {
+    if (key == 'This Week' || key == 'This Month') return key;
+    final parts = key.split('-');
+    if (parts.length != 2) return key;
+    final year = int.tryParse(parts[0]) ?? 0;
+    final month = int.tryParse(parts[1]) ?? 1;
+    const names = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${names[month - 1]} $year';
   }
 
   Future<void> _openWorkoutLog() async {
@@ -198,12 +303,156 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 8),
                     _todayCard(goals),
                     const SizedBox(height: 22),
-                    _sectionHeader('This Week'),
-                    const SizedBox(height: 8),
-                    _weeklyCard(goals),
+                    _sectionHeader('Your history'),
+                    const SizedBox(height: 10),
+                    _historyRangeChips(),
+                    const SizedBox(height: 10),
+                    _historyCard(),
                   ],
                 ),
               ),
+      ),
+    );
+  }
+
+  Widget _historyRangeChips() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final option in _historyOptions) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(_historyLabel(option)),
+                selected: _historyRange == option,
+                onSelected: (_) {
+                  final userId =
+                      Supabase.instance.client.auth.currentUser?.id;
+                  setState(() => _historyRange = option);
+                  if (userId != null) unawaited(_loadHistory(userId));
+                },
+                selectedColor: _accent.withValues(alpha: 0.25),
+                labelStyle: TextStyle(
+                  color: _historyRange == option
+                      ? const Color(0xFF9FD0FF)
+                      : const Color(0xFF9BA5B7),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+                backgroundColor: const Color(0xFF151A22),
+                side: BorderSide(
+                  color: _historyRange == option
+                      ? _accent.withValues(alpha: 0.5)
+                      : const Color(0xFF2A3340),
+                ),
+                showCheckmark: false,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _historyCard() {
+    if (_historyLoading && _historyDays.isEmpty) {
+      return Container(
+        height: 120,
+        alignment: Alignment.center,
+        decoration: _decoration(),
+        child: const SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2, color: _accent),
+        ),
+      );
+    }
+
+    final total = _historyDays.fold<int>(0, (sum, d) => sum + d.steps);
+    final activeDays = _historyDays.where((d) => d.steps > 0).length;
+    final average = activeDays == 0 ? 0 : total ~/ activeDays;
+    ({DateTime date, int steps})? best;
+    for (final day in _historyDays) {
+      if (best == null || day.steps > best.steps) best = day;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _decoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                _historyLabel(_historyRange),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_number(total)} steps',
+                style: const TextStyle(
+                  color: Color(0xFF45A4FF),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (_historyDays.isEmpty)
+            const Text(
+              'No synced days in this range yet. Open Got Motion after you move so Health can sync.',
+              style: TextStyle(color: Color(0xFF9BA5B7), fontSize: 13),
+            )
+          else ...[
+            SizedBox(
+              height: 72,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final day in _historyDays)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                        child: Container(
+                          height: () {
+                            final maxSteps = best?.steps ?? 0;
+                            if (maxSteps <= 0) return 4.0;
+                            return 8.0 + (day.steps / maxSteps) * 56.0;
+                          }(),
+                          decoration: BoxDecoration(
+                            color: day.steps > 0
+                                ? _accent.withValues(alpha: 0.85)
+                                : const Color(0xFF1B2737),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _Insight(label: 'Daily average', value: _number(average)),
+                _Insight(
+                  label: 'Best day',
+                  value: best == null || best.steps == 0
+                      ? '--'
+                      : '${best.date.month}/${best.date.day}',
+                ),
+                _Insight(label: 'Active days', value: '$activeDays'),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -428,74 +677,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             exerciseGoal: goals.exerciseMinutes,
             miles: _today.distanceMiles,
             milesGoal: goals.miles,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _weeklyCard(UserGoals goals) {
-    final total = _week.fold<int>(0, (sum, value) => sum + value);
-    final elapsedDays = DateTime.now().weekday.clamp(1, 7);
-    final average = total ~/ elapsedDays;
-    var bestIndex = 0;
-    for (var i = 1; i < _week.length; i++) {
-      if (_week[i] > _week[bestIndex]) bestIndex = i;
-    }
-    var streak = 0;
-    for (var i = elapsedDays - 1; i >= 0; i--) {
-      if (_week[i] <= 0) break;
-      streak++;
-    }
-    final target = goals.steps * 7;
-    final progress = (total / target).clamp(0.0, 1.0);
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: _decoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Weekly steps',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${_number(total)} / ${_number(target)}',
-                style: const TextStyle(
-                  color: Color(0xFF45A4FF),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 11),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(5),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 8,
-              backgroundColor: const Color(0xFF1B2737),
-              color: _accent,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              _Insight(label: 'Daily average', value: _number(average)),
-              _Insight(
-                label: 'Best day',
-                value: _week[bestIndex] == 0 ? '--' : _shortWeekday(bestIndex),
-              ),
-              _Insight(label: 'Active streak', value: '$streak days'),
-            ],
           ),
         ],
       ),
@@ -1017,6 +1198,3 @@ String _number(num value) => value.round().toString().replaceAllMapped(
 String _decimal(double value) => value == value.roundToDouble()
     ? value.round().toString()
     : value.toStringAsFixed(1);
-
-String _shortWeekday(int index) =>
-    const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][index];

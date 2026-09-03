@@ -739,11 +739,13 @@ class _SettingsAccountScreenState extends State<SettingsAccountScreen> {
       for (final p in providers) {
         final lower = p.toString().toLowerCase();
         if (lower == 'google') labels.add('Google');
+        if (lower == 'apple') labels.add('Apple');
         if (lower == 'email') labels.add('Email');
       }
     }
     final provider = appMeta['provider']?.toString().toLowerCase();
     if (provider == 'google') labels.add('Google');
+    if (provider == 'apple') labels.add('Apple');
     if (provider == 'email') labels.add('Email');
 
     if ((user.email ?? '').isNotEmpty) labels.add('Email');

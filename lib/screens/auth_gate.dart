@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/app_boot.dart';
+import '../services/background_health_sync_service.dart';
 import '../services/deep_link_handler.dart';
 import '../services/auth_profile_sync_service.dart';
 import '../services/notification_service.dart';
@@ -83,14 +84,36 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
-  Future<void> _prepareSignedIn() async {
+  /// Never block the UI forever on network/Health during sign-in.
+  Future<void> _runBootTasks() async {
     await Future.wait([
-      selectedGroupService.hydrate(),
-      _syncProfileFromAuth(),
-      syncActivityService.hydrate(),
-      pushNotificationService.ensureHandlers(),
+      selectedGroupService.hydrate().timeout(
+        const Duration(seconds: 6),
+        onTimeout: () {},
+      ),
+      _syncProfileFromAuth().timeout(
+        const Duration(seconds: 6),
+        onTimeout: () {},
+      ),
+      syncActivityService.hydrate().timeout(
+        const Duration(seconds: 4),
+        onTimeout: () {},
+      ),
+      pushNotificationService.ensureHandlers().timeout(
+        const Duration(seconds: 4),
+        onTimeout: () {},
+      ),
     ]);
     unawaited(notificationService.refresh());
+    unawaited(backgroundHealthSyncService.start());
+  }
+
+  Future<void> _prepareSignedIn() async {
+    try {
+      await _runBootTasks();
+    } catch (_) {
+      // Boot tasks are best-effort; always enter the app.
+    }
     if (!mounted) return;
     setState(() {
       _isLoggedIn = true;
@@ -100,20 +123,25 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _checkSession() async {
-    final wasRecoveryFromLink = await _handleInitialLink();
+    var wasRecoveryFromLink = false;
+    try {
+      wasRecoveryFromLink = await _handleInitialLink().timeout(
+        const Duration(seconds: 4),
+        onTimeout: () => false,
+      );
+    } catch (_) {
+      wasRecoveryFromLink = false;
+    }
     if (!mounted) return;
     final session = SupabaseService.client.auth.currentSession;
 
     // Hydrate membership while the splash is still up so Home opens with a
-    // selected group instead of "Choose a group".
+    // selected group instead of "Choose a group". Cap wait so Review never
+    // sees an infinite splash after login.
     if (session != null) {
-      await Future.wait([
-        selectedGroupService.hydrate(),
-        _syncProfileFromAuth(),
-        syncActivityService.hydrate(),
-        pushNotificationService.ensureHandlers(),
-      ]);
-      unawaited(notificationService.refresh());
+      try {
+        await _runBootTasks();
+      } catch (_) {}
     }
 
     AppBoot.markReady();

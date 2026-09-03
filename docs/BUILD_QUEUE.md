@@ -1,57 +1,53 @@
 # Build queue
 
-Track what ships in each TestFlight build. **Build 14** is live; **Build 15** is the current batch.
-
-When you ask for a feature or fix, it gets added here under **Build 15** until we cut the IPA.
+**Build 16** = App Store resubmit batch. Don’t cut IPA until Must-ship is done.
 
 ---
 
-## Build 15 (in progress) — `1.0.0+15`
+## Build 16 — `1.0.0+16`
 
-### Done (in repo, not on TestFlight yet)
+### Done
+- [x] **2.1(a)** — No infinite spinner after login (timeouts on AuthGate / Home / Profile / Health)
+- [x] **4.8** — Sign in with Apple (login UI + entitlements)
 
-- [x] **Performance** — cap HealthKit history sync (no more 730-day hammer on launch)
-- [x] **Leaderboard speed** — don’t load until tab opens; reuse cached groups; parallel Supabase queries; show rows before Health; no reload loop
-- [x] **Performance** — Health timeouts so spinners don’t hang forever
-- [x] **Performance** — Profile loads only when that tab is opened
-- [x] **Performance** — Debounce Leaderboard refresh when switching tabs
-- [x] **Tooling** — `tool/export_ipa.sh` for Transporter exports after Xcode sign-in
-- [x] **Workout proof cleanup** — edge function deletes proof photos/videos after 7 days
-- [x] **Proof UX** — copy on finish sheet: photo preferred, proof auto-removed after ~7 days
+### Product decisions (locked in)
 
-### Still before ship
+**Health**
+- Prefer **Apple Watch** when present; always include **third-party apps that write to Apple Health** (cousin logs in his app → Health → Got Motion).
+- Native HealthKit path already merges third-party; Dart fallback must not drop “other” sources when there’s no Watch.
 
-- [ ] **Deploy cleanup cron** — schedule `cleanup-workout-proofs` edge function (daily)
+**Notifications**
+- Remove “get moving” morning/evening copy (`Morning motion` / `Evening motion`).
+- Same schedule slots → **leaderboard digests** instead.
+- **One digest push**, not one per group (avoids 10 alerts if you’re in 10 groups).
+- Only include groups where you’re in the **top 3**.
+- Copy: place + gap to 1st (“You’re 2nd in Mighty Ducks — 4,200 steps from the lead”).
 
-### Queued (ideas — add to this build when ready)
+**History**
+- Personal past weeks/months live on **Profile** (replace redundant bottom “This Week”).
+- Not a global “everyone’s past months” on Leaderboard (that stays Today / Week / Month-to-date).
 
-- [ ] **“Log in Fitness”** — optional button on workout flow for phone-only users
+### Must ship
+- [x] Notifications: kill get-moving; top-3 digest with gap-to-1st; update Settings labels
+- [x] Profile: replace This Week with personal history (week / month / prior months)
+- [x] Health: Watch preferred + third-party Health sources included (Dart fallback)
+- [x] Background Health sync + last-synced on Leaderboard
+- [ ] Manual: Apple Sign In capability + Supabase Apple provider + IPA + App Review reply
+  - Push Edge Functions deployed (`push-morning`, `push-evening`, `push-group-motion`)
+  - Migration `daily_steps.synced_at` applied on remote
 
-### TestFlight release notes (draft)
+### Deferred
+- [ ] Workout proof cleanup cron deploy
+- [ ] Log in Fitness button
+- [ ] Pushup / rep counting
 
+### Release notes (draft)
 ```
-Build 15
-- Much faster screen loads (Home, Leaderboard, Settings)
-- Fixed spinners freezing or taking too long
-- Workout proof photos/videos auto-delete after 7 days (workout log stays)
-- Includes Build 14 fixes (tab scroll, double-spinner, invites, Health)
+Build 16
+- Sign in with Apple
+- Fixed hang after login
+- Leaderboard digests (top 3 in your groups) — no more “get moving” spam
+- Profile history for past weeks/months
+- Better Health sync (Watch + apps that write to Health)
+- Background Health updates + “last synced” on Leaderboard
 ```
-
----
-
-## Shipped
-
-| Build | Highlights |
-|-------|------------|
-| **14** | Tab scroll reset, double-spinner fix, group invite RPC, HealthKit single-auth |
-| **13** | Leaderboard double-spinner when no group |
-| **12** | Invite link join, Health timeouts, Android deep link |
-| **11** | In-app workouts, Fitness-style UI |
-
----
-
-## How we use this
-
-1. You ask for something → it lands under **Build 15 → Queued**
-2. We implement → move to **Done**
-3. When you’re ready to ship → `flutter build ipa` / Transporter → tick **Shipped** and start **Build 16** section

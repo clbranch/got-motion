@@ -73,10 +73,10 @@ class HealthService {
         types.length,
         HealthDataAccess.READ,
       );
-      final granted = await _health.requestAuthorization(
-        types,
-        permissions: permissions,
-      );
+      // Cap wait so a stuck HealthKit sheet never freezes Home forever.
+      final granted = await _health
+          .requestAuthorization(types, permissions: permissions)
+          .timeout(const Duration(seconds: 12), onTimeout: () => false);
       clearNativeCache();
       if (defaultTargetPlatform == TargetPlatform.iOS) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -281,15 +281,16 @@ class HealthService {
     return 'other';
   }
 
-  /// Watch-only when Watch recorded today; otherwise iPhone. Never add both.
+  /// Watch when present; otherwise best of iPhone + third-party Health apps
+  /// (never add Watch + iPhone — that double-counts).
   static List<HealthDataPoint> _activeSourcePoints(
     List<HealthDataPoint> points,
   ) {
     final watch = points.where((p) => _sourceBucket(p) == 'watch').toList();
     if (watch.isNotEmpty) return watch;
-    final phone = points.where((p) => _sourceBucket(p) == 'phone').toList();
-    if (phone.isNotEmpty) return phone;
-    return points;
+    // No Watch: keep phone + other (MyZone, Garmin, etc.) so we can pick the
+    // strongest named source without dropping third-party apps.
+    return points.where((p) => _sourceBucket(p) != 'watch').toList();
   }
 
   static List<HealthDataPoint> _otherSourcePoints(

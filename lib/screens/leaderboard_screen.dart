@@ -275,6 +275,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 userId: currentUserId,
                 email: currentUserEmail,
               ),
+              lastSyncedAt: LeaderboardService.parseLastSyncedAt(row),
             ),
           )
           .toList();
@@ -379,6 +380,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       avatarUrl: myAvatarUrl,
       previousRank: null,
       isCurrentUser: true,
+      lastSyncedAt: DateTime.now(),
     );
     if (kDebugMode) {
       // ignore: avoid_print
@@ -1425,6 +1427,13 @@ class _StandingsCard extends StatelessWidget {
                               '${_format(stats.activeCalories)} CAL  ·  ${stats.exerciseMinutes} MIN',
                               style: const TextStyle(
                                 color: Color(0xFF788395),
+                                fontSize: 9,
+                              ),
+                            ),
+                            Text(
+                              LeaderboardService.syncLabel(stats.lastSyncedAt),
+                              style: const TextStyle(
+                                color: Color(0xFF5C6B7E),
                                 fontSize: 9,
                               ),
                             ),

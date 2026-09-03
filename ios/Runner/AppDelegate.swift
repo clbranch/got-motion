@@ -31,6 +31,9 @@ import UserNotifications
         Self.openHealthApp(result: result)
       case "getHealthMetrics":
         HealthKitDayMetrics.fetch(call: call, result: result)
+      case "startHealthBackgroundDelivery":
+        HealthKitBackgroundSync.start(channel: systemChannel)
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -118,6 +121,37 @@ import UserNotifications
     UIApplication.shared.open(healthURL, options: [:]) { opened in
       result(opened)
     }
+  }
+}
+
+/// Observes HealthKit step updates and wakes Flutter to upsert daily_steps.
+private enum HealthKitBackgroundSync {
+  private static let store = HKHealthStore()
+  private static var started = false
+  private static weak var channel: FlutterMethodChannel?
+  private static var observerQuery: HKObserverQuery?
+
+  static func start(channel: FlutterMethodChannel) {
+    Self.channel = channel
+    guard !started, HKHealthStore.isHealthDataAvailable() else { return }
+    guard let stepType = HKObjectType.quantityType(forIdentifier: .stepCount)
+    else { return }
+    started = true
+
+    store.enableBackgroundDelivery(for: stepType, frequency: .hourly) { _, _ in
+      // Best-effort; observer still works in foreground without this.
+    }
+
+    let query = HKObserverQuery(sampleType: stepType, predicate: nil) {
+      _, completionHandler, error in
+      defer { completionHandler() }
+      guard error == nil else { return }
+      DispatchQueue.main.async {
+        Self.channel?.invokeMethod("onHealthDataChanged", arguments: nil)
+      }
+    }
+    observerQuery = query
+    store.execute(query)
   }
 }
 
