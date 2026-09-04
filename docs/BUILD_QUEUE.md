@@ -4,7 +4,15 @@
 
 ---
 
-## Build 16 — `1.0.0+16`
+## Build 18 — `1.0.0+18`
+
+### Done
+- [x] Profile history: colored metric chart + totals (steps / calories / miles); legend switches the bars
+- [x] Build 17: removed invalid `healthkit` UIBackgroundModes (Transporter 409)
+
+### Carry-forward from Build 16/17
+- Sign in with Apple, login hang fixes, leaderboard digests, background Health, last-synced
+
 
 ### Done
 - [x] **2.1(a)** — No infinite spinner after login (timeouts on AuthGate / Home / Profile / Health)

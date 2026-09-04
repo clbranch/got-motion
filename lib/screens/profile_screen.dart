@@ -45,8 +45,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// Personal history range on Profile (not the group leaderboard).
   String _historyRange = 'This Week'; // This Week | This Month | past YYYY-MM
-  List<({DateTime date, int steps})> _historyDays = const [];
+  List<_HistoryDay> _historyDays = const [];
   bool _historyLoading = false;
+  /// Which metric the history bars show (legend selection).
+  _HistoryMetric _historyMetric = _HistoryMetric.steps;
 
   @override
   void initState() {
@@ -144,24 +146,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final endStr = end.toIso8601String().split('T').first;
       final rows = await Supabase.instance.client
           .from('daily_steps')
-          .select('date, steps')
+          .select('date, steps, miles, active_calories')
           .eq('user_id', userId)
           .gte('date', startStr)
           .lte('date', endStr)
           .order('date')
           .timeout(const Duration(seconds: 8));
 
-      final byDate = <String, int>{};
+      final byDate = <String, _HistoryDay>{};
       for (final row in List<Map<String, dynamic>>.from(rows as List)) {
         final d = row['date']?.toString() ?? '';
-        byDate[d] = (row['steps'] as num?)?.toInt() ?? 0;
+        if (d.isEmpty) continue;
+        byDate[d] = _HistoryDay(
+          date: DateTime.tryParse(d) ?? start,
+          steps: (row['steps'] as num?)?.toInt() ?? 0,
+          miles: (row['miles'] as num?)?.toDouble() ?? 0,
+          calories: (row['active_calories'] as num?)?.toInt() ?? 0,
+        );
       }
 
-      final days = <({DateTime date, int steps})>[];
+      final days = <_HistoryDay>[];
       var cursor = start;
       while (!cursor.isAfter(end)) {
         final key = cursor.toIso8601String().split('T').first;
-        days.add((date: cursor, steps: byDate[key] ?? 0));
+        days.add(
+          byDate[key] ??
+              _HistoryDay(date: cursor, steps: 0, miles: 0, calories: 0),
+        );
         cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
       }
 
@@ -369,13 +380,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
 
-    final total = _historyDays.fold<int>(0, (sum, d) => sum + d.steps);
-    final activeDays = _historyDays.where((d) => d.steps > 0).length;
-    final average = activeDays == 0 ? 0 : total ~/ activeDays;
-    ({DateTime date, int steps})? best;
-    for (final day in _historyDays) {
-      if (best == null || day.steps > best.steps) best = day;
+    const stepsColor = Color(0xFF45A4FF);
+    const caloriesColor = Color(0xFFFF8A4C);
+    const milesColor = Color(0xFF3DDBA0);
+
+    final totalSteps = _historyDays.fold<int>(0, (sum, d) => sum + d.steps);
+    final totalCalories = _historyDays.fold<int>(
+      0,
+      (sum, d) => sum + d.calories,
+    );
+    final totalMiles = _historyDays.fold<double>(
+      0,
+      (sum, d) => sum + d.miles,
+    );
+
+    final chartColor = switch (_historyMetric) {
+      _HistoryMetric.steps => stepsColor,
+      _HistoryMetric.calories => caloriesColor,
+      _HistoryMetric.miles => milesColor,
+    };
+    final maxValue = _historyDays.fold<double>(0, (m, d) {
+      final v = d.valueFor(_historyMetric);
+      return v > m ? v : m;
+    });
+
+    double barHeight(double value) {
+      if (maxValue <= 0 || value <= 0) return 4;
+      return 8 + (value / maxValue) * 64;
     }
+
+    final dayGap = _historyDays.length > 14 ? 1.0 : 2.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -383,26 +417,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                _historyLabel(_historyRange),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${_number(total)} steps',
-                style: const TextStyle(
-                  color: Color(0xFF45A4FF),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+          Text(
+            _historyLabel(_historyRange),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 14),
           if (_historyDays.isEmpty)
@@ -412,25 +433,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
             )
           else ...[
             SizedBox(
-              height: 72,
+              height: 80,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   for (final day in _historyDays)
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                        child: Container(
-                          height: () {
-                            final maxSteps = best?.steps ?? 0;
-                            if (maxSteps <= 0) return 4.0;
-                            return 8.0 + (day.steps / maxSteps) * 56.0;
-                          }(),
-                          decoration: BoxDecoration(
-                            color: day.steps > 0
-                                ? _accent.withValues(alpha: 0.85)
-                                : const Color(0xFF1B2737),
-                            borderRadius: BorderRadius.circular(3),
+                        padding: EdgeInsets.symmetric(horizontal: dayGap / 2),
+                        child: Tooltip(
+                          message:
+                              '${day.date.month}/${day.date.day} · '
+                              '${_historyMetric.format(day.valueFor(_historyMetric))}',
+                          child: Container(
+                            height: barHeight(day.valueFor(_historyMetric)),
+                            decoration: BoxDecoration(
+                              color: day.valueFor(_historyMetric) > 0
+                                  ? chartColor
+                                  : const Color(0xFF1B2737),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
                           ),
                         ),
                       ),
@@ -438,17 +460,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _HistoryLegendDot(
+                  color: stepsColor,
+                  label: 'Steps',
+                  selected: _historyMetric == _HistoryMetric.steps,
+                  onTap: () => setState(
+                    () => _historyMetric = _HistoryMetric.steps,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _HistoryLegendDot(
+                  color: caloriesColor,
+                  label: 'Calories',
+                  selected: _historyMetric == _HistoryMetric.calories,
+                  onTap: () => setState(
+                    () => _historyMetric = _HistoryMetric.calories,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _HistoryLegendDot(
+                  color: milesColor,
+                  label: 'Miles',
+                  selected: _historyMetric == _HistoryMetric.miles,
+                  onTap: () => setState(
+                    () => _historyMetric = _HistoryMetric.miles,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
-                _Insight(label: 'Daily average', value: _number(average)),
                 _Insight(
-                  label: 'Best day',
-                  value: best == null || best.steps == 0
-                      ? '--'
-                      : '${best.date.month}/${best.date.day}',
+                  label: 'Total steps',
+                  value: _number(totalSteps),
+                  accent: stepsColor,
                 ),
-                _Insight(label: 'Active days', value: '$activeDays'),
+                _Insight(
+                  label: 'Total calories',
+                  value: _number(totalCalories),
+                  accent: caloriesColor,
+                ),
+                _Insight(
+                  label: 'Total miles',
+                  value: totalMiles < 10
+                      ? totalMiles.toStringAsFixed(1)
+                      : _number(totalMiles),
+                  accent: milesColor,
+                ),
               ],
             ),
           ],
@@ -1099,10 +1162,95 @@ class _GoalTile extends StatelessWidget {
   );
 }
 
+enum _HistoryMetric { steps, calories, miles }
+
+extension on _HistoryMetric {
+  String format(double value) {
+    switch (this) {
+      case _HistoryMetric.steps:
+        return '${value.round()} steps';
+      case _HistoryMetric.calories:
+        return '${value.round()} cal';
+      case _HistoryMetric.miles:
+        return '${value.toStringAsFixed(value < 10 ? 1 : 0)} mi';
+    }
+  }
+}
+
+class _HistoryDay {
+  const _HistoryDay({
+    required this.date,
+    required this.steps,
+    required this.miles,
+    required this.calories,
+  });
+
+  final DateTime date;
+  final int steps;
+  final double miles;
+  final int calories;
+
+  double valueFor(_HistoryMetric metric) => switch (metric) {
+    _HistoryMetric.steps => steps.toDouble(),
+    _HistoryMetric.calories => calories.toDouble(),
+    _HistoryMetric.miles => miles,
+  };
+}
+
+class _HistoryLegendDot extends StatelessWidget {
+  const _HistoryLegendDot({
+    required this.color,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final Color color;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    behavior: HitTestBehavior.opaque,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: selected ? color.withValues(alpha: 0.16) : Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: selected ? color.withValues(alpha: 0.55) : const Color(0xFF2A3340),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : const Color(0xFF9BA5B7),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _Insight extends StatelessWidget {
-  const _Insight({required this.label, required this.value});
+  const _Insight({required this.label, required this.value, this.accent});
   final String label;
   final String value;
+  final Color? accent;
   @override
   Widget build(BuildContext context) => Expanded(
     child: Column(
@@ -1110,8 +1258,8 @@ class _Insight extends StatelessWidget {
         Text(
           value,
           maxLines: 1,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: accent ?? Colors.white,
             fontSize: 14,
             fontWeight: FontWeight.w800,
           ),
