@@ -353,10 +353,12 @@ private enum HealthKitDayMetrics {
           appleMinutes = summary.appleExerciseTime.doubleValue(for: .minute())
           standHours = summary.appleStandHours.doubleValue(for: .count())
         }
-        // Watch users: ring minutes from Watch; add third-party workouts only.
+        // Watch present: never stack Watch rings + MyZone/third-party.
+        // Take the stronger daily total so a forgotten-Watch gym session still
+        // counts, without double-counting when both track the same workout.
         let thirdPartyCalories = max(calorieSources.other, workoutTotals.kilocalories)
-        calories = appleCalories + thirdPartyCalories
-        minutes = appleMinutes + workoutTotals.minutes
+        calories = max(appleCalories, thirdPartyCalories)
+        minutes = max(appleMinutes, workoutTotals.minutes)
       } else {
         // Phone-only: match what Apple Health shows. Exercise minutes can come
         // from the iPhone, Fitness, or apps writing appleExerciseTime — not only

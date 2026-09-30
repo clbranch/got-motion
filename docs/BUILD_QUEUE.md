@@ -8,6 +8,7 @@
 
 ### Done
 - [x] Profile history: colored metric chart + totals (steps / calories / miles); legend switches the bars
+- [x] Watch + MyZone: calories/exercise use max (never stack Watch rings + third-party)
 
 ### Already in 16/17 (shipped code)
 - [x] **2.1(a)** — No infinite spinner after login

@@ -410,18 +410,14 @@ class HealthService {
       (sum, point) => sum + _workoutMinutes(point),
     );
 
-    final calories = hasWatch
-        ? appleCalories +
-              (otherCalories > workoutCalories ? otherCalories : workoutCalories)
-        : [
-            appleCalories,
-            otherCalories,
-            workoutCalories,
-          ].reduce((a, b) => a > b ? a : b);
+    // Never stack Watch + third-party (MyZone, etc.). Take the stronger total.
+    final calories = [
+      appleCalories,
+      otherCalories,
+      workoutCalories,
+    ].reduce((a, b) => a > b ? a : b);
     final minutes = isAndroid
         ? workoutMinutes
-        : hasWatch
-        ? appleMinutes + workoutMinutes
         : (appleMinutes > workoutMinutes ? appleMinutes : workoutMinutes);
 
     return TodayMetrics(
